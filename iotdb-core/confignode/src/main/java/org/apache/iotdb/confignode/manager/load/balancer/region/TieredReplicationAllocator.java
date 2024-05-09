@@ -149,9 +149,7 @@ public class TieredReplicationAllocator implements IRegionGroupAllocator {
       init(
           availableDataNodeMap.size(),
           replicationFactor,
-          ConfigNodeDescriptor.getInstance().getConf().getDefaultDataRegionGroupNumPerDatabase()
-              * replicationFactor
-              / availableDataNodeMap.size());
+          (int) ConfigNodeDescriptor.getInstance().getConf().getDataRegionPerDataNode());
     }
 
     TRegionReplicaSet result = new TRegionReplicaSet();

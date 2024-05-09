@@ -27,13 +27,11 @@ import java.util.TreeMap;
 public class SimpleExecutor extends SeriesPartitionExecutor {
 
   private int lastSlotId = 0;
-  private final int seriesPartitionSlotNum;
   private final Map<String, Integer> slotMap;
 
   public SimpleExecutor(int seriesPartitionSlotNum) {
     super(seriesPartitionSlotNum);
     this.slotMap = new TreeMap<>();
-    this.seriesPartitionSlotNum = seriesPartitionSlotNum;
   }
 
   @Override

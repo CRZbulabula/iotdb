@@ -104,7 +104,7 @@ public class ConfigNodeConfig {
   private int defaultDataRegionGroupNumPerDatabase = 2;
 
   /** The maximum number of DataRegions expected to be managed by each DataNode. */
-  private double dataRegionPerDataNode = 5.0;
+  private double dataRegionPerDataNode = 6.0;
 
   /** RegionGroup allocate policy. */
   private RegionBalancer.RegionGroupAllocatePolicy regionGroupAllocatePolicy =
