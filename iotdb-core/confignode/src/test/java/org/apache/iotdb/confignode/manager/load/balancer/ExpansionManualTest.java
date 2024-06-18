@@ -25,8 +25,8 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
+import org.apache.iotdb.confignode.manager.load.balancer.region.CopySetRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
-import org.apache.iotdb.confignode.manager.load.balancer.region.TieredReplicationAllocator;
 
 import org.junit.Test;
 
@@ -47,7 +47,7 @@ public class ExpansionManualTest {
   private static final int EXPAND_DATA_NODE_NUM = 4;
   private static final int DATA_REPLICATION_FACTOR = 2;
 
-  private static final IRegionGroupAllocator ALLOCATOR = new TieredReplicationAllocator();
+  private static final IRegionGroupAllocator ALLOCATOR = new CopySetRegionGroupAllocator();
 
   @Test
   public void expansionTest() {
@@ -58,6 +58,18 @@ public class ExpansionManualTest {
       AVAILABLE_DATA_NODE_MAP.put(
           i, new TDataNodeConfiguration().setLocation(new TDataNodeLocation().setDataNodeId(i)));
       FREE_SPACE_MAP.put(i, random.nextDouble());
+    }
+
+    List<TRegionReplicaSet> allocatedSchemaRegions = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      allocatedSchemaRegions.add(
+          ALLOCATOR.generateOptimalRegionReplicasDistribution(
+              AVAILABLE_DATA_NODE_MAP,
+              FREE_SPACE_MAP,
+              allocatedSchemaRegions,
+              new ArrayList<>(),
+              3,
+              new TConsensusGroupId(TConsensusGroupType.SchemaRegion, i)));
     }
 
     int currentDataNode = 4;

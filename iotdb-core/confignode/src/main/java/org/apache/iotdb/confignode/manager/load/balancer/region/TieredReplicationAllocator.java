@@ -20,6 +20,7 @@
 package org.apache.iotdb.confignode.manager.load.balancer.region;
 
 import org.apache.iotdb.common.rpc.thrift.TConsensusGroupId;
+import org.apache.iotdb.common.rpc.thrift.TConsensusGroupType;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
@@ -34,9 +35,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TieredReplicationAllocator implements IRegionGroupAllocator {
 
-  private int dataNodeNum = -1;
   private final Random RANDOM = new Random();
-  private final Map<Integer, List<List<Integer>>> COPY_SETS = new TreeMap<>();
+  private final Map<TConsensusGroupType, Integer> dataNodeNumMap = new TreeMap<>();
+  private final Map<TConsensusGroupType, Map<Integer, List<List<Integer>>>> COPY_SETS =
+      new TreeMap<>();
 
   private static class DataNodeEntry {
 
@@ -57,16 +59,22 @@ public class TieredReplicationAllocator implements IRegionGroupAllocator {
     }
   }
 
-  private void init(int dataNodeNum, int replicationFactor, int loadFactor) {
-    this.dataNodeNum = dataNodeNum;
+  private void init(
+      int dataNodeNum,
+      int replicationFactor,
+      int loadFactor,
+      TConsensusGroupType consensusGroupType) {
+    this.dataNodeNumMap.put(consensusGroupType, dataNodeNum);
+    Map<Integer, List<List<Integer>>> copy_sets =
+        COPY_SETS.computeIfAbsent(consensusGroupType, k -> new TreeMap<>());
     Map<Integer, BitSet> scatterWidthMap = new TreeMap<>();
     for (int i = 1; i <= dataNodeNum; i++) {
       scatterWidthMap.put(i, new BitSet(dataNodeNum + 1));
     }
     int targetScatterWidth = Math.min(loadFactor * (replicationFactor - 1), dataNodeNum - 1);
-    while (existScatterWidthUnsatisfied(scatterWidthMap, targetScatterWidth)) {
+    while (existScatterWidthUnsatisfied(scatterWidthMap, targetScatterWidth, consensusGroupType)) {
       for (int firstRegion = 1; firstRegion <= dataNodeNum; firstRegion++) {
-        if (!COPY_SETS.containsKey(firstRegion)
+        if (!copy_sets.containsKey(firstRegion)
             || scatterWidthMap.get(firstRegion).cardinality() < targetScatterWidth) {
           List<Integer> copySet = new ArrayList<>();
           copySet.add(firstRegion);
@@ -109,7 +117,7 @@ public class TieredReplicationAllocator implements IRegionGroupAllocator {
             }
           }
           for (int e : copySet) {
-            COPY_SETS.computeIfAbsent(e, k -> new ArrayList<>()).add(copySet);
+            copy_sets.computeIfAbsent(e, k -> new ArrayList<>()).add(copySet);
           }
           break;
         }
@@ -120,9 +128,11 @@ public class TieredReplicationAllocator implements IRegionGroupAllocator {
   public TieredReplicationAllocator() {}
 
   private boolean existScatterWidthUnsatisfied(
-      Map<Integer, BitSet> scatterWidthMap, int targetScatterWidth) {
-    for (int i = 1; i <= dataNodeNum; i++) {
-      if (!COPY_SETS.containsKey(i)) {
+      Map<Integer, BitSet> scatterWidthMap,
+      int targetScatterWidth,
+      TConsensusGroupType consensusGroupType) {
+    for (int i = 1; i <= dataNodeNumMap.get(consensusGroupType); i++) {
+      if (!COPY_SETS.get(consensusGroupType).containsKey(i)) {
         return true;
       }
     }
@@ -145,16 +155,18 @@ public class TieredReplicationAllocator implements IRegionGroupAllocator {
       int replicationFactor,
       TConsensusGroupId consensusGroupId) {
 
-    if (this.dataNodeNum != availableDataNodeMap.size()) {
+    if (this.dataNodeNumMap.getOrDefault(consensusGroupId.getType(), -1)
+        != availableDataNodeMap.size()) {
       init(
           availableDataNodeMap.size(),
           replicationFactor,
-          (int) ConfigNodeDescriptor.getInstance().getConf().getDataRegionPerDataNode());
+          (int) ConfigNodeDescriptor.getInstance().getConf().getDataRegionPerDataNode(),
+          consensusGroupId.getType());
     }
 
     TRegionReplicaSet result = new TRegionReplicaSet();
     Map<Integer, Integer> regionCounter = new TreeMap<>();
-    for (int i = 1; i <= dataNodeNum; i++) {
+    for (int i = 1; i <= dataNodeNumMap.get(consensusGroupId.getType()); i++) {
       regionCounter.put(i, 0);
     }
     allocatedRegionGroups.forEach(
@@ -176,7 +188,10 @@ public class TieredReplicationAllocator implements IRegionGroupAllocator {
       }
     }
     List<Integer> copySet =
-        COPY_SETS.get(firstRegion).get(RANDOM.nextInt(COPY_SETS.get(firstRegion).size()));
+        COPY_SETS
+            .get(consensusGroupId.getType())
+            .get(firstRegion)
+            .get(RANDOM.nextInt(COPY_SETS.get(consensusGroupId.getType()).get(firstRegion).size()));
     for (int dataNodeId : copySet) {
       result.addToDataNodeLocations(availableDataNodeMap.get(dataNodeId).getLocation());
     }

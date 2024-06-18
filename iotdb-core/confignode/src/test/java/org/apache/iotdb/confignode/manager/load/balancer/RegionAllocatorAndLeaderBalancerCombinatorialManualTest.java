@@ -26,8 +26,8 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.confignode.manager.load.balancer.region.GreedyCopySetRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
+import org.apache.iotdb.confignode.manager.load.balancer.router.leader.GreedyLeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.ILeaderBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.MinCostFlowLeaderBalancer;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -50,9 +50,9 @@ public class RegionAllocatorAndLeaderBalancerCombinatorialManualTest {
       LoggerFactory.getLogger(RegionAllocatorAndLeaderBalancerCombinatorialManualTest.class);
 
   private static final int TEST_LOOP = 1;
-  private static final int TEST_DATA_NODE_NUM = 8;
+  private static final int TEST_DATA_NODE_NUM = 16;
   private static final int DATA_REGION_PER_DATA_NODE = 6;
-  private static final int DATA_REPLICATION_FACTOR = 3;
+  private static final int DATA_REPLICATION_FACTOR = 2;
   private static final String DATABASE = "root.db";
 
   private static final Map<Integer, TDataNodeConfiguration> AVAILABLE_DATA_NODE_MAP =
@@ -60,7 +60,7 @@ public class RegionAllocatorAndLeaderBalancerCombinatorialManualTest {
   private static final Map<Integer, Double> FREE_SPACE_MAP = new TreeMap<>();
 
   private static final IRegionGroupAllocator ALLOCATOR = new GreedyCopySetRegionGroupAllocator();
-  private static final ILeaderBalancer BALANCER = new MinCostFlowLeaderBalancer();
+  private static final ILeaderBalancer BALANCER = new GreedyLeaderBalancer();
 
   @BeforeClass
   public static void setUp() {
@@ -166,7 +166,7 @@ public class RegionAllocatorAndLeaderBalancerCombinatorialManualTest {
       int minLeaderCount = leaderCounter.values().stream().min(Integer::compareTo).orElse(0);
       int maxLeaderCount = leaderCounter.values().stream().max(Integer::compareTo).orElse(0);
       leaderCounter.forEach((dataNodeId, leaderCount) -> leaderCountList.add(leaderCount));
-      // LOGGER.info("Leader count min: {}, max: {}", minLeaderCount, maxLeaderCount);
+      LOGGER.info("Leader count min: {}, max: {}", minLeaderCount, maxLeaderCount);
     }
 
     LOGGER.info("All tests done.");
