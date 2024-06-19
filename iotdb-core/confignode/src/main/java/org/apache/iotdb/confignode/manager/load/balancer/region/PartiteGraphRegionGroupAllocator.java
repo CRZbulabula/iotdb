@@ -20,9 +20,11 @@
 package org.apache.iotdb.confignode.manager.load.balancer.region;
 
 import org.apache.iotdb.common.rpc.thrift.TConsensusGroupId;
+import org.apache.iotdb.common.rpc.thrift.TConsensusGroupType;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
+import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,26 +32,34 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
 
   private static final Random RANDOM = new Random();
+  private static final GreedyRegionGroupAllocator GREEDY_ALLOCATOR = new GreedyRegionGroupAllocator();
 
+  private int partiteCount;
   private int replicationFactor;
+  private int regionPerDataNode;
+
+  private int dataNodeNum;
   // The number of allocated Regions in each DataNode
   private int[] regionCounter;
   // The number of 2-Region combinations in current cluster
   private int[][] combinationCounter;
+  private Map<Integer, Integer> fakeToRealIdMap;
+  private Map<Integer, Integer> realToFakeIdMap;
 
-  int maxDataNodeId;
-  int primaryDataNodeNum;
-  int minScatterWidth;
+  private int primaryDataNodeNum;
+  private int minScatterWidth;
   // First Key: the sum of overlapped 2-Region combination Regions with
   // other allocated RegionGroups is minimal
-  int optimalCombinationSum;
+  private int optimalCombinationSum;
   // Second Key: the sum of DataRegions in selected DataNodes is minimal
-  int optimalRegionSum;
-  int[] optimalPrimaryDataNodes;
+  private int optimalRegionSum;
+  private int[] optimalPrimaryDataNodes;
 
   @Override
   public TRegionReplicaSet generateOptimalRegionReplicasDistribution(
@@ -60,11 +70,16 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
       int replicationFactor,
       TConsensusGroupId consensusGroupId) {
 
+    this.regionPerDataNode = (int) (consensusGroupId.getType().equals(TConsensusGroupType.DataRegion) ?
+          ConfigNodeDescriptor.getInstance().getConf().getDataRegionPerDataNode() :
+          ConfigNodeDescriptor.getInstance().getConf().getSchemaRegionPerDataNode());
     prepare(replicationFactor, availableDataNodeMap, allocatedRegionGroups);
 
-    int partiteCount = replicationFactor - 1;
     for (int i = 0; i < partiteCount; i++) {
-      partiteDfs(i, 0, primaryDataNodeNum, 0, 0, optimalPrimaryDataNodes);
+      primaryPartiteSearch(i, 0, primaryDataNodeNum, 0, 0, optimalPrimaryDataNodes);
+    }
+    if (optimalCombinationSum == Integer.MAX_VALUE) {
+      return GREEDY_ALLOCATOR.generateOptimalRegionReplicasDistribution(availableDataNodeMap, freeDiskSpaceMap, allocatedRegionGroups, databaseAllocatedRegionGroups, replicationFactor, consensusGroupId);
     }
 
     List<Integer> backupDataNodes = new ArrayList<>();
@@ -73,62 +88,58 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
       if (i == selectedPartite) {
         continue;
       }
-      partiteSearch(i, backupDataNodes);
+      backupPartiteSearch(i, backupDataNodes);
     }
     Collections.shuffle(backupDataNodes);
+    if (backupDataNodes.size() < replicationFactor - primaryDataNodeNum) {
+      return GREEDY_ALLOCATOR.generateOptimalRegionReplicasDistribution(availableDataNodeMap, freeDiskSpaceMap, allocatedRegionGroups, databaseAllocatedRegionGroups, replicationFactor, consensusGroupId);
+    }
 
     TRegionReplicaSet result = new TRegionReplicaSet();
     result.setRegionId(consensusGroupId);
     for (int i = 0; i < primaryDataNodeNum; i++) {
       result.addToDataNodeLocations(
-          availableDataNodeMap.get(optimalPrimaryDataNodes[i]).getLocation());
+          availableDataNodeMap.get(fakeToRealIdMap.get(optimalPrimaryDataNodes[i])).getLocation());
     }
     for (int i = 0; i < replicationFactor - primaryDataNodeNum; i++) {
-      result.addToDataNodeLocations(availableDataNodeMap.get(backupDataNodes.get(i)).getLocation());
+      result.addToDataNodeLocations(availableDataNodeMap.get(fakeToRealIdMap.get(backupDataNodes.get(i))).getLocation());
     }
-
-    return null;
+    return result;
   }
 
-  /**
-   * Prepare some statistics before dfs.
-   *
-   * @param replicationFactor replication factor in the cluster
-   * @param availableDataNodeMap currently available DataNodes, ensure size() >= replicationFactor
-   * @param allocatedRegionGroups already allocated RegionGroups in the cluster
-   */
   private void prepare(
       int replicationFactor,
       Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
       List<TRegionReplicaSet> allocatedRegionGroups) {
 
+    this.partiteCount = replicationFactor - 1;
     this.replicationFactor = replicationFactor;
-    // Store the maximum DataNodeId
-    this.maxDataNodeId =
-        Math.max(
-            availableDataNodeMap.keySet().stream().max(Integer::compareTo).orElse(0),
-            allocatedRegionGroups.stream()
-                .flatMap(regionGroup -> regionGroup.getDataNodeLocations().stream())
-                .mapToInt(TDataNodeLocation::getDataNodeId)
-                .max()
-                .orElse(0));
+
+    this.fakeToRealIdMap = new TreeMap<>();
+    this.realToFakeIdMap = new TreeMap<>();
+    this.dataNodeNum = availableDataNodeMap.size();
+    List<Integer> dataNodeIdList = availableDataNodeMap.values().stream().map(c -> c.getLocation().getDataNodeId()).collect(Collectors.toList());
+    for (int i = 0; i < dataNodeNum; i++) {
+      fakeToRealIdMap.put(i, dataNodeIdList.get(i));
+      realToFakeIdMap.put(dataNodeIdList.get(i), i);
+    }
 
     // Compute regionCounter, databaseRegionCounter and combinationCounter
-    this.regionCounter = new int[maxDataNodeId + 1];
+    this.regionCounter = new int[dataNodeNum];
     Arrays.fill(regionCounter, 0);
-    this.combinationCounter = new int[maxDataNodeId + 1][maxDataNodeId + 1];
-    for (int i = 0; i <= maxDataNodeId; i++) {
+    this.combinationCounter = new int[dataNodeNum][dataNodeNum];
+    for (int i = 0; i < dataNodeNum; i++) {
       Arrays.fill(combinationCounter[i], 0);
     }
     for (TRegionReplicaSet regionReplicaSet : allocatedRegionGroups) {
       List<TDataNodeLocation> dataNodeLocations = regionReplicaSet.getDataNodeLocations();
       for (int i = 0; i < dataNodeLocations.size(); i++) {
-        regionCounter[dataNodeLocations.get(i).getDataNodeId()]++;
+        int fakeIId = realToFakeIdMap.get(dataNodeLocations.get(i).getDataNodeId());
+        regionCounter[fakeIId]++;
         for (int j = i + 1; j < dataNodeLocations.size(); j++) {
-          combinationCounter[dataNodeLocations.get(i).getDataNodeId()][
-              dataNodeLocations.get(j).getDataNodeId()]++;
-          combinationCounter[dataNodeLocations.get(j).getDataNodeId()][
-              dataNodeLocations.get(i).getDataNodeId()]++;
+          int fakeJId = realToFakeIdMap.get(dataNodeLocations.get(j).getDataNodeId());
+          combinationCounter[fakeIId][fakeJId] = 1;
+          combinationCounter[fakeJId][fakeIId] = 1;
         }
       }
     }
@@ -142,7 +153,7 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
     this.optimalPrimaryDataNodes = new int[primaryDataNodeNum];
   }
 
-  private void partiteDfs(
+  private void primaryPartiteSearch(
       int firstIndex,
       int currentReplica,
       int replicaNum,
@@ -165,7 +176,11 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
       return;
     }
 
-    for (int i = firstIndex; i <= maxDataNodeId; i += replicationFactor) {
+    for (int i = firstIndex; i < dataNodeNum; i += partiteCount) {
+      if (regionCounter[i] >= regionPerDataNode) {
+        // Pruning: skip DataNodes already satisfied
+        continue;
+      }
       int nxtCombinationSum = combinationSum;
       for (int j = 0; j < currentReplica; j++) {
         nxtCombinationSum += combinationCounter[i][currentReplicaSet[j]];
@@ -182,8 +197,8 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
         return;
       }
       currentReplicaSet[currentReplica] = i;
-      partiteDfs(
-          i + replicationFactor,
+      primaryPartiteSearch(
+          i + partiteCount,
           currentReplica + 1,
           replicaNum,
           nxtCombinationSum,
@@ -192,10 +207,13 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
     }
   }
 
-  private void partiteSearch(int partiteIndex, List<Integer> backupDataNodes) {
+  private void backupPartiteSearch(int partiteIndex, List<Integer> backupDataNodes) {
     int bestRegionSum = Integer.MAX_VALUE;
-    int selectedDataNode = partiteIndex;
-    for (int j = partiteIndex; j <= maxDataNodeId; j += replicationFactor) {
+    int selectedDataNode = -1;
+    for (int j = partiteIndex; j < dataNodeNum; j += partiteCount) {
+      if (regionCounter[j] >= regionPerDataNode) {
+        continue;
+      }
       int scatterWidth = primaryDataNodeNum;
       for (int k = 0; k < primaryDataNodeNum; k++) {
         scatterWidth -= combinationCounter[j][optimalPrimaryDataNodes[k]];
@@ -210,6 +228,8 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
         selectedDataNode = j;
       }
     }
-    backupDataNodes.add(selectedDataNode);
+    if (selectedDataNode != -1) {
+      backupDataNodes.add(selectedDataNode);
+    }
   }
 }
