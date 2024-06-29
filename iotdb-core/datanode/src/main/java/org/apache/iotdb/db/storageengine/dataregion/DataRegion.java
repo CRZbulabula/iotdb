@@ -1605,11 +1605,11 @@ public class DataRegion implements IDataRegionForQuery {
   /** Iterate each TsFile and try to lock and remove those out of TTL. */
   public synchronized void checkFilesTTL() {
     if (dataTTL == Long.MAX_VALUE) {
-      logger.debug("{}: TTL not set, ignore the check", databaseName + "-" + dataRegionId);
+      logger.info("{}: TTL not set, ignore the check", databaseName + "-" + dataRegionId);
       return;
     }
     long ttlLowerBound = CommonDateTimeUtils.currentTime() - dataTTL;
-    logger.debug(
+    logger.info(
         "{}: TTL removing files before {}",
         databaseName + "-" + dataRegionId,
         new Date(ttlLowerBound));
@@ -2987,6 +2987,7 @@ public class DataRegion implements IDataRegionForQuery {
               dataTTL, CommonDescriptor.getInstance().getConfig().getTimestampPrecision());
     }
     this.dataTTL = dataTTL;
+    logger.info("Set data TTL to {} ms", dataTTL);
   }
 
   public void setDataTTL(long dataTTL) {

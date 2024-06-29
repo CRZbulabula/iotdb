@@ -57,6 +57,7 @@ public class TimePartitionUtils {
   }
 
   public static long getTimePartitionId(long time) {
+    time += 28800000;
     return time > 0 || time % timePartitionInterval == 0
         ? time / timePartitionInterval
         : time / timePartitionInterval - 1;

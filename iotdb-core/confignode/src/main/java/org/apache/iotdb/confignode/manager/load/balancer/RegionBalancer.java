@@ -165,6 +165,7 @@ public class RegionBalancer {
     GREEDY,
     COPY_SET,
     TIERED_REPLICATION,
-    GCR
+    GCR,
+    PSR
   }
 }

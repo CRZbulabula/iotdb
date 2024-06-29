@@ -28,7 +28,6 @@ import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -38,9 +37,10 @@ import java.util.stream.Collectors;
 public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
 
   private static final Random RANDOM = new Random();
-  private static final GreedyRegionGroupAllocator GREEDY_ALLOCATOR = new GreedyRegionGroupAllocator();
+  private static final GreedyRegionGroupAllocator GREEDY_ALLOCATOR =
+      new GreedyRegionGroupAllocator();
 
-  private int partiteCount;
+  private int subGraphCount;
   private int replicationFactor;
   private int regionPerDataNode;
 
@@ -52,14 +52,13 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
   private Map<Integer, Integer> fakeToRealIdMap;
   private Map<Integer, Integer> realToFakeIdMap;
 
-  private int primaryDataNodeNum;
-  private int minScatterWidth;
+  private int subDataNodeNum;
   // First Key: the sum of overlapped 2-Region combination Regions with
   // other allocated RegionGroups is minimal
   private int optimalCombinationSum;
   // Second Key: the sum of DataRegions in selected DataNodes is minimal
   private int optimalRegionSum;
-  private int[] optimalPrimaryDataNodes;
+  private int[] optimalSubDataNodes;
 
   @Override
   public TRegionReplicaSet generateOptimalRegionReplicasDistribution(
@@ -70,39 +69,46 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
       int replicationFactor,
       TConsensusGroupId consensusGroupId) {
 
-    this.regionPerDataNode = (int) (consensusGroupId.getType().equals(TConsensusGroupType.DataRegion) ?
-          ConfigNodeDescriptor.getInstance().getConf().getDataRegionPerDataNode() :
-          ConfigNodeDescriptor.getInstance().getConf().getSchemaRegionPerDataNode());
+    this.regionPerDataNode =
+        (int)
+            (consensusGroupId.getType().equals(TConsensusGroupType.DataRegion)
+                ? ConfigNodeDescriptor.getInstance().getConf().getDataRegionPerDataNode()
+                : ConfigNodeDescriptor.getInstance().getConf().getSchemaRegionPerDataNode());
     prepare(replicationFactor, availableDataNodeMap, allocatedRegionGroups);
 
-    for (int i = 0; i < partiteCount; i++) {
-      primaryPartiteSearch(i, 0, primaryDataNodeNum, 0, 0, optimalPrimaryDataNodes);
+    for (int i = 0; i < subGraphCount; i++) {
+      subGraphSearch(i, 0, subDataNodeNum, 0, 0, new int[subDataNodeNum]);
     }
     if (optimalCombinationSum == Integer.MAX_VALUE) {
-      return GREEDY_ALLOCATOR.generateOptimalRegionReplicasDistribution(availableDataNodeMap, freeDiskSpaceMap, allocatedRegionGroups, databaseAllocatedRegionGroups, replicationFactor, consensusGroupId);
+      return GREEDY_ALLOCATOR.generateOptimalRegionReplicasDistribution(
+          availableDataNodeMap,
+          freeDiskSpaceMap,
+          allocatedRegionGroups,
+          databaseAllocatedRegionGroups,
+          replicationFactor,
+          consensusGroupId);
     }
 
-    List<Integer> backupDataNodes = new ArrayList<>();
-    int selectedPartite = optimalPrimaryDataNodes[0] % partiteCount;
-    for (int i = 0; i < partiteCount; i++) {
-      if (i == selectedPartite) {
-        continue;
-      }
-      backupPartiteSearch(i, backupDataNodes);
-    }
-    Collections.shuffle(backupDataNodes);
-    if (backupDataNodes.size() < replicationFactor - primaryDataNodeNum) {
-      return GREEDY_ALLOCATOR.generateOptimalRegionReplicasDistribution(availableDataNodeMap, freeDiskSpaceMap, allocatedRegionGroups, databaseAllocatedRegionGroups, replicationFactor, consensusGroupId);
+    List<Integer> partiteNodes = partiteGraphSearch(optimalSubDataNodes[0] % subGraphCount);
+    if (partiteNodes.size() < replicationFactor - subDataNodeNum) {
+      return GREEDY_ALLOCATOR.generateOptimalRegionReplicasDistribution(
+          availableDataNodeMap,
+          freeDiskSpaceMap,
+          allocatedRegionGroups,
+          databaseAllocatedRegionGroups,
+          replicationFactor,
+          consensusGroupId);
     }
 
     TRegionReplicaSet result = new TRegionReplicaSet();
     result.setRegionId(consensusGroupId);
-    for (int i = 0; i < primaryDataNodeNum; i++) {
+    for (int i = 0; i < subDataNodeNum; i++) {
       result.addToDataNodeLocations(
-          availableDataNodeMap.get(fakeToRealIdMap.get(optimalPrimaryDataNodes[i])).getLocation());
+          availableDataNodeMap.get(fakeToRealIdMap.get(optimalSubDataNodes[i])).getLocation());
     }
-    for (int i = 0; i < replicationFactor - primaryDataNodeNum; i++) {
-      result.addToDataNodeLocations(availableDataNodeMap.get(fakeToRealIdMap.get(backupDataNodes.get(i))).getLocation());
+    for (int i = 0; i < replicationFactor - subDataNodeNum; i++) {
+      result.addToDataNodeLocations(
+          availableDataNodeMap.get(fakeToRealIdMap.get(partiteNodes.get(i))).getLocation());
     }
     return result;
   }
@@ -112,13 +118,16 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
       Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
       List<TRegionReplicaSet> allocatedRegionGroups) {
 
-    this.partiteCount = replicationFactor - 1;
+    this.subGraphCount = replicationFactor / 2 + (replicationFactor % 2 == 0 ? 0 : 1);
     this.replicationFactor = replicationFactor;
 
     this.fakeToRealIdMap = new TreeMap<>();
     this.realToFakeIdMap = new TreeMap<>();
     this.dataNodeNum = availableDataNodeMap.size();
-    List<Integer> dataNodeIdList = availableDataNodeMap.values().stream().map(c -> c.getLocation().getDataNodeId()).collect(Collectors.toList());
+    List<Integer> dataNodeIdList =
+        availableDataNodeMap.values().stream()
+            .map(c -> c.getLocation().getDataNodeId())
+            .collect(Collectors.toList());
     for (int i = 0; i < dataNodeNum; i++) {
       fakeToRealIdMap.put(i, dataNodeIdList.get(i));
       realToFakeIdMap.put(dataNodeIdList.get(i), i);
@@ -145,15 +154,13 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
     }
 
     // Reset the optimal result
-    this.primaryDataNodeNum =
-        Math.max(replicationFactor % 2 == 1 ? replicationFactor / 2 + 1 : replicationFactor / 2, 2);
-    this.minScatterWidth = replicationFactor / 2;
+    this.subDataNodeNum = replicationFactor / 2 + 1;
     this.optimalCombinationSum = Integer.MAX_VALUE;
     this.optimalRegionSum = Integer.MAX_VALUE;
-    this.optimalPrimaryDataNodes = new int[primaryDataNodeNum];
+    this.optimalSubDataNodes = new int[subDataNodeNum];
   }
 
-  private void primaryPartiteSearch(
+  private void subGraphSearch(
       int firstIndex,
       int currentReplica,
       int replicaNum,
@@ -167,18 +174,18 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
         // Reset the optimal result when a better one is found
         optimalCombinationSum = combinationSum;
         optimalRegionSum = regionSum;
-        optimalPrimaryDataNodes = Arrays.copyOf(currentReplicaSet, replicationFactor);
+        optimalSubDataNodes = Arrays.copyOf(currentReplicaSet, replicationFactor);
       } else if (combinationSum == optimalCombinationSum
           && regionSum == optimalRegionSum
           && RANDOM.nextBoolean()) {
-        optimalPrimaryDataNodes = Arrays.copyOf(currentReplicaSet, replicationFactor);
+        optimalSubDataNodes = Arrays.copyOf(currentReplicaSet, replicationFactor);
       }
       return;
     }
 
-    for (int i = firstIndex; i < dataNodeNum; i += partiteCount) {
+    for (int i = firstIndex; i < dataNodeNum; i += subGraphCount) {
       if (regionCounter[i] >= regionPerDataNode) {
-        // Pruning: skip DataNodes already satisfied
+        // Pruning: skip full DataNodes
         continue;
       }
       int nxtCombinationSum = combinationSum;
@@ -197,8 +204,8 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
         return;
       }
       currentReplicaSet[currentReplica] = i;
-      primaryPartiteSearch(
-          i + partiteCount,
+      subGraphSearch(
+          i + subGraphCount,
           currentReplica + 1,
           replicaNum,
           nxtCombinationSum,
@@ -207,29 +214,42 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
     }
   }
 
-  private void backupPartiteSearch(int partiteIndex, List<Integer> backupDataNodes) {
-    int bestRegionSum = Integer.MAX_VALUE;
-    int selectedDataNode = -1;
-    for (int j = partiteIndex; j < dataNodeNum; j += partiteCount) {
-      if (regionCounter[j] >= regionPerDataNode) {
+  private List<Integer> partiteGraphSearch(int selected) {
+    List<Integer> partiteNodes = new ArrayList<>();
+    for (int partiteIndex = 0; partiteIndex < subDataNodeNum; partiteIndex++) {
+      if (partiteIndex == selected) {
         continue;
       }
-      int scatterWidth = primaryDataNodeNum;
-      for (int k = 0; k < primaryDataNodeNum; k++) {
-        scatterWidth -= combinationCounter[j][optimalPrimaryDataNodes[k]];
+      int selectedDataNode = -1;
+      int bestScatterWidth = 0;
+      int bestRegionSum = Integer.MAX_VALUE;
+      for (int i = partiteIndex; i < dataNodeNum; i += subDataNodeNum) {
+        if (regionCounter[i] >= regionPerDataNode) {
+          continue;
+        }
+        int scatterWidth = subDataNodeNum;
+        for (int k = 0; k < subDataNodeNum; k++) {
+          scatterWidth -= combinationCounter[i][optimalSubDataNodes[k]];
+        }
+        if (scatterWidth < bestScatterWidth) {
+          continue;
+        }
+        if (scatterWidth > bestScatterWidth) {
+          bestScatterWidth = scatterWidth;
+          bestRegionSum = regionCounter[i];
+          selectedDataNode = i;
+        } else if (regionCounter[i] < bestRegionSum) {
+          bestRegionSum = regionCounter[i];
+          selectedDataNode = i;
+        } else if (regionCounter[i] == bestRegionSum && RANDOM.nextBoolean()) {
+          selectedDataNode = i;
+        }
       }
-      if (scatterWidth < minScatterWidth) {
-        continue;
+      if (selectedDataNode == -1) {
+        return new ArrayList<>();
       }
-      if (regionCounter[j] < bestRegionSum) {
-        bestRegionSum = regionCounter[j];
-        selectedDataNode = j;
-      } else if (regionCounter[j] == bestRegionSum && RANDOM.nextBoolean()) {
-        selectedDataNode = j;
-      }
+      partiteNodes.add(selectedDataNode);
     }
-    if (selectedDataNode != -1) {
-      backupDataNodes.add(selectedDataNode);
-    }
+    return partiteNodes;
   }
 }
