@@ -216,14 +216,14 @@ public class PartiteGraphRegionGroupAllocator implements IRegionGroupAllocator {
 
   private List<Integer> partiteGraphSearch(int selected) {
     List<Integer> partiteNodes = new ArrayList<>();
-    for (int partiteIndex = 0; partiteIndex < subDataNodeNum; partiteIndex++) {
+    for (int partiteIndex = 0; partiteIndex < subGraphCount; partiteIndex++) {
       if (partiteIndex == selected) {
         continue;
       }
       int selectedDataNode = -1;
       int bestScatterWidth = 0;
       int bestRegionSum = Integer.MAX_VALUE;
-      for (int i = partiteIndex; i < dataNodeNum; i += subDataNodeNum) {
+      for (int i = partiteIndex; i < dataNodeNum; i += subGraphCount) {
         if (regionCounter[i] >= regionPerDataNode) {
           continue;
         }

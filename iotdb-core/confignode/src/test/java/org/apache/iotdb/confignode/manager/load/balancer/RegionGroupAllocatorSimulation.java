@@ -179,10 +179,10 @@ public class RegionGroupAllocatorSimulation {
         scatterWidthList.add(scatterWidth);
       }
 
-      //      for (TRegionReplicaSet regionReplicaSet : allocateResult) {
-      //        LOGGER.info("{}",
-      // regionReplicaSet.getDataNodeLocations().stream().mapToInt(TDataNodeLocation::getDataNodeId).toArray());
-      //      }
+//            for (TRegionReplicaSet regionReplicaSet : allocateResult) {
+//              LOGGER.info("{}",
+//       regionReplicaSet.getDataNodeLocations().stream().mapToInt(TDataNodeLocation::getDataNodeId).toArray());
+//            }
     }
 
     int regionRange =
