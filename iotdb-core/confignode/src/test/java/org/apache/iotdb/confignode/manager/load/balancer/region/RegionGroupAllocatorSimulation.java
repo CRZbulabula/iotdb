@@ -122,7 +122,7 @@ public class RegionGroupAllocatorSimulation {
     double minScatterRatio = 1.0;
     for (int loop = 1; loop <= TEST_LOOP; loop++) {
       List<TRegionReplicaSet> allocateResult = new ArrayList<>();
-      IRegionGroupAllocator ALLOCATOR = new PGRA();
+      IRegionGroupAllocator ALLOCATOR = new PartiteGraphReplicationRegionGroupAllocator();
       for (int index = 0; index < dataRegionGroupNum; index++) {
         allocateResult.add(
             ALLOCATOR.generateOptimalRegionReplicasDistribution(
