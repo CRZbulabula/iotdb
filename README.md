@@ -35,6 +35,12 @@ All the aforementioned source codes except those alternative algorithms could be
 + Replica placement algorithms: The url of our partite graph placement (PGP) algorithm is: https://github.com/apache/iotdb/blob/master/iotdb-core/confignode/src/main/java/org/apache/iotdb/confignode/manager/load/balancer/region/PartiteGraphReplicationRegionGroupAllocator.java
 + Leader selection algorithms: The url of our cost flow selection (CFS) algorithm is: https://github.com/apache/iotdb/blob/master/iotdb-core/confignode/src/main/java/org/apache/iotdb/confignode/manager/load/balancer/router/leader/MinCostFlowLeaderBalancer.java
 
+Under the sigmod folder, which locates at the same folder as README file, is our evaluation scripts:
 
++ client folder: scripts that start and stop the write client
++ datanode folder: scripts that start, stop and restart the nodes
++ evaluation folder: configuration files and scripts that deploy the IoTDB cluster
++ simulate-workload folder: write client java classes
 
+To reproduce the evaluation, please follow the README file in the Apache IoTDB repository (https://github.com/apache/iotdb) to build and deploy IoTDB.
 
