@@ -31,7 +31,6 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -90,16 +89,16 @@ public class RegionGroupAllocatorSimulation {
       //            LOGGER.info("{}, finish", dataNodeNum);
     }
 
-//    FileWriter scatterW =
-//        new FileWriter(
-//            "/Users/yongzaodan/Desktop/simulation/psr-simulate/scatter/r="
-//                + DATA_REPLICATION_FACTOR
-//                + ".log");
-//    for (DataEntry entry : testResult) {
-//      scatterW.write(entry.minScatterRatio + "\n");
-//      scatterW.flush();
-//    }
-//    scatterW.close();
+    //    FileWriter scatterW =
+    //        new FileWriter(
+    //            "/Users/yongzaodan/Desktop/simulation/psr-simulate/scatter/r="
+    //                + DATA_REPLICATION_FACTOR
+    //                + ".log");
+    //    for (DataEntry entry : testResult) {
+    //      scatterW.write(entry.minScatterRatio + "\n");
+    //      scatterW.flush();
+    //    }
+    //    scatterW.close();
   }
 
   private DataEntry singleTest(int N, int W) {
@@ -183,12 +182,13 @@ public class RegionGroupAllocatorSimulation {
         scatterWidthList.add(scatterWidth);
       }
 
-                        for (TRegionReplicaSet regionReplicaSet : allocateResult) {
-                          LOGGER.info("{}",
-
-
-       regionReplicaSet.getDataNodeLocations().stream().mapToInt(TDataNodeLocation::getDataNodeId).toArray());
-                        }
+      for (TRegionReplicaSet regionReplicaSet : allocateResult) {
+        LOGGER.info(
+            "{}",
+            regionReplicaSet.getDataNodeLocations().stream()
+                .mapToInt(TDataNodeLocation::getDataNodeId)
+                .toArray());
+      }
     }
 
     int regionRange =
