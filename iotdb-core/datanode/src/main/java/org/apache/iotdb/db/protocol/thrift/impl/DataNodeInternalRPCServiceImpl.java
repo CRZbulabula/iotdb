@@ -281,7 +281,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static org.apache.iotdb.commons.client.request.Utils.testConnectionsImpl;
+import static org.apache.iotdb.commons.client.request.TestConnectionUtils.testConnectionsImpl;
 import static org.apache.iotdb.commons.conf.IoTDBConstant.MULTI_LEVEL_PATH_WILDCARD;
 import static org.apache.iotdb.db.service.RegionMigrateService.REGION_MIGRATE_PROCESS;
 import static org.apache.iotdb.db.utils.ErrorHandlingUtils.onQueryException;
@@ -514,32 +514,34 @@ public class DataNodeInternalRPCServiceImpl implements IDataNodeRPCService.Iface
   }
 
   @Override
-  public TSStatus constructSchemaBlackList(TConstructSchemaBlackListReq req) throws TException {
-    PathPatternTree patternTree =
+  public TSStatus constructSchemaBlackList(final TConstructSchemaBlackListReq req)
+      throws TException {
+    final PathPatternTree patternTree =
         PathPatternTree.deserialize(ByteBuffer.wrap(req.getPathPatternTree()));
-    AtomicInteger preDeletedNum = new AtomicInteger(0);
-    TSStatus executionResult =
-        executeInternalSchemaTask(
+    final AtomicLong preDeletedNum = new AtomicLong(0);
+    final TSStatus executionResult =
+        executeSchemaBlackListTask(
             req.getSchemaRegionIdList(),
             consensusGroupId -> {
-              String storageGroup =
+              final String storageGroup =
                   schemaEngine
                       .getSchemaRegion(new SchemaRegionId(consensusGroupId.getId()))
                       .getDatabaseFullPath();
-              PathPatternTree filteredPatternTree =
+              final PathPatternTree filteredPatternTree =
                   filterPathPatternTree(patternTree, storageGroup);
               if (filteredPatternTree.isEmpty()) {
-                return RpcUtils.SUCCESS_STATUS;
+                return new TSStatus(TSStatusCode.ONLY_LOGICAL_VIEW.getStatusCode());
               }
-              RegionWriteExecutor executor = new RegionWriteExecutor();
-              TSStatus status =
+              final RegionWriteExecutor executor = new RegionWriteExecutor();
+              final TSStatus status =
                   executor
                       .execute(
                           new SchemaRegionId(consensusGroupId.getId()),
                           new ConstructSchemaBlackListNode(new PlanNodeId(""), filteredPatternTree))
                       .getStatus();
-              if (status.code == TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
-                preDeletedNum.getAndAdd(Integer.parseInt(status.getMessage()));
+              if (status.code == TSStatusCode.SUCCESS_STATUS.getStatusCode()
+                  || status.code == TSStatusCode.ONLY_LOGICAL_VIEW.getStatusCode()) {
+                preDeletedNum.getAndAdd(Long.parseLong(status.getMessage()));
               }
               return status;
             });
@@ -1295,6 +1297,30 @@ public class DataNodeInternalRPCServiceImpl implements IDataNodeRPCService.Iface
     return resp;
   }
 
+  private TSStatus executeSchemaBlackListTask(
+      final List<TConsensusGroupId> consensusGroupIdList,
+      final Function<TConsensusGroupId, TSStatus> executeOnOneRegion) {
+    final List<TSStatus> statusList = new ArrayList<>();
+    TSStatus status;
+    boolean hasFailure = false;
+    for (final TConsensusGroupId consensusGroupId : consensusGroupIdList) {
+      status = executeOnOneRegion.apply(consensusGroupId);
+      if (status.getCode() != TSStatusCode.SUCCESS_STATUS.getStatusCode()
+          && status.getCode() != TSStatusCode.ONLY_LOGICAL_VIEW.getStatusCode()) {
+        hasFailure = true;
+      }
+      statusList.add(status);
+    }
+    if (hasFailure) {
+      return RpcUtils.getStatus(statusList);
+    } else {
+      return statusList.stream()
+          .filter(tsStatus -> tsStatus.getCode() == TSStatusCode.SUCCESS_STATUS.getStatusCode())
+          .findFirst()
+          .orElse(new TSStatus(TSStatusCode.ONLY_LOGICAL_VIEW.getStatusCode()));
+    }
+  }
+
   private TSStatus executeInternalSchemaTask(
       List<TConsensusGroupId> consensusGroupIdList,
       Function<TConsensusGroupId, TSStatus> executeOnOneRegion) {
@@ -1466,8 +1492,7 @@ public class DataNodeInternalRPCServiceImpl implements IDataNodeRPCService.Iface
         TServiceType.ConfigNodeInternalService,
         DnToCnRequestType.TEST_CONNECTION,
         (AsyncRequestContext<Object, TSStatus, DnToCnRequestType, TConfigNodeLocation> handler) ->
-            DnToCnInternalServiceAsyncRequestManager.getInstance()
-                .sendAsyncRequestWithRetry(handler));
+            DnToCnInternalServiceAsyncRequestManager.getInstance().sendAsyncRequest(handler));
   }
 
   private List<TTestConnectionResult> testAllDataNodeInternalServiceConnection(
@@ -1479,8 +1504,7 @@ public class DataNodeInternalRPCServiceImpl implements IDataNodeRPCService.Iface
         TServiceType.DataNodeInternalService,
         DnToDnRequestType.TEST_CONNECTION,
         (AsyncRequestContext<Object, TSStatus, DnToDnRequestType, TDataNodeLocation> handler) ->
-            DnToDnInternalServiceAsyncRequestManager.getInstance()
-                .sendAsyncRequestWithRetry(handler));
+            DnToDnInternalServiceAsyncRequestManager.getInstance().sendAsyncRequest(handler));
   }
 
   private List<TTestConnectionResult> testAllDataNodeMPPServiceConnection(
@@ -1492,7 +1516,7 @@ public class DataNodeInternalRPCServiceImpl implements IDataNodeRPCService.Iface
         TServiceType.DataNodeMPPService,
         DnToDnRequestType.TEST_CONNECTION,
         (AsyncRequestContext<Object, TSStatus, DnToDnRequestType, TDataNodeLocation> handler) ->
-            DataNodeMPPServiceAsyncRequestManager.getInstance().sendAsyncRequestWithRetry(handler));
+            DataNodeMPPServiceAsyncRequestManager.getInstance().sendAsyncRequest(handler));
   }
 
   private List<TTestConnectionResult> testAllDataNodeExternalServiceConnection(
@@ -1504,8 +1528,7 @@ public class DataNodeInternalRPCServiceImpl implements IDataNodeRPCService.Iface
         TServiceType.DataNodeExternalService,
         DnToDnRequestType.TEST_CONNECTION,
         (AsyncRequestContext<Object, TSStatus, DnToDnRequestType, TDataNodeLocation> handler) ->
-            DataNodeExternalServiceAsyncRequestManager.getInstance()
-                .sendAsyncRequestWithRetry(handler));
+            DataNodeExternalServiceAsyncRequestManager.getInstance().sendAsyncRequest(handler));
   }
 
   @Override

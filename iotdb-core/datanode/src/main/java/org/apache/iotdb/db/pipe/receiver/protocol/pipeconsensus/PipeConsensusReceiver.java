@@ -418,11 +418,11 @@ public class PipeConsensusReceiver {
       long endPreCheckNanos = System.nanoTime();
       pipeConsensusReceiverMetrics.recordTsFileSealPreCheckTimer(
           endPreCheckNanos - startPreCheckNanos);
+      updateWritePointCountMetrics(req.getPointCount(), fileAbsolutePath);
       final TSStatus status =
           loadFileToDataRegion(
               fileAbsolutePath,
               ProgressIndexType.deserializeFrom(ByteBuffer.wrap(req.getProgressIndex())));
-      updateWritePointCountMetrics(req.getPointCount(), fileAbsolutePath);
       pipeConsensusReceiverMetrics.recordTsFileSealLoadTimer(System.nanoTime() - endPreCheckNanos);
 
       if (status.getCode() == TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
@@ -538,11 +538,11 @@ public class PipeConsensusReceiver {
       pipeConsensusReceiverMetrics.recordTsFileSealPreCheckTimer(
           endPreCheckNanos - startPreCheckNanos);
       final String tsFileAbsolutePath = fileAbsolutePaths.get(1);
+      updateWritePointCountMetrics(req.getPointCounts().get(1), tsFileAbsolutePath);
       final TSStatus status =
           loadFileToDataRegion(
               tsFileAbsolutePath,
               ProgressIndexType.deserializeFrom(ByteBuffer.wrap(req.getProgressIndex())));
-      updateWritePointCountMetrics(req.getPointCounts().get(1), tsFileAbsolutePath);
       pipeConsensusReceiverMetrics.recordTsFileSealLoadTimer(System.nanoTime() - endPreCheckNanos);
 
       if (status.getCode() == TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
@@ -668,7 +668,7 @@ public class PipeConsensusReceiver {
         .ifPresent(
             databaseName ->
                 LoadTsFileManager.updateWritePointCountMetrics(
-                    dataRegion, databaseName, writePointCount));
+                    dataRegion, databaseName, writePointCount, true));
   }
 
   private TsFileResource generateTsFileResource(String filePath, ProgressIndex progressIndex)
@@ -1041,12 +1041,19 @@ public class PipeConsensusReceiver {
         // We should synchronously find the idle writer to avoid concurrency issues.
         try {
           lock.lock();
-          diskBuffer =
-              pipeConsensusTsFileWriterPool.stream().filter(item -> !item.isUsed()).findFirst();
-          // We don't need to check diskBuffer.isPresent() here. Since diskBuffers' length is equals
-          // to ReqExecutor's buffer, so the diskBuffer is always present.
+          // We need to check diskBuffer.isPresent() here. Since there may be both retry-sent tsfile
+          // events and real-time-sent tsfile events, causing the receiver's tsFileWriter load to
+          // exceed IOTDB_CONFIG.getPipeConsensusPipelineSize().
+          while (!diskBuffer.isPresent()) {
+            diskBuffer =
+                pipeConsensusTsFileWriterPool.stream().filter(item -> !item.isUsed()).findFirst();
+            Thread.sleep(RETRY_WAIT_TIME);
+          }
           diskBuffer.get().setUsed(true);
           diskBuffer.get().setCommitIdOfCorrespondingHolderEvent(commitId);
+        } catch (InterruptedException e) {
+          LOGGER.warn(
+              "PipeConsensus: receiver thread get interrupted when waiting for borrowing tsFileWriter.");
         } finally {
           lock.unlock();
         }
@@ -1419,12 +1426,15 @@ public class PipeConsensusReceiver {
     public void setStartApplyNanos(long startApplyNanos) {
       // Notice that a tsFileInsertionEvent will enter RequestExecutor multiple times, we only need
       // to record the time of the first apply
-      if (startApplyNanos == 0) {
+      if (this.startApplyNanos == 0) {
         this.startApplyNanos = startApplyNanos;
       }
     }
 
     public long getStartApplyNanos() {
+      if (startApplyNanos == 0) {
+        return System.nanoTime();
+      }
       return startApplyNanos;
     }
 
