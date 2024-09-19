@@ -41,6 +41,7 @@ import org.apache.iotdb.confignode.consensus.request.read.region.GetRegionIdPlan
 import org.apache.iotdb.confignode.consensus.request.read.region.GetRegionInfoListPlan;
 import org.apache.iotdb.confignode.consensus.request.read.subscription.ShowSubscriptionPlan;
 import org.apache.iotdb.confignode.consensus.request.read.subscription.ShowTopicPlan;
+import org.apache.iotdb.confignode.consensus.request.read.table.ShowTablePlan;
 import org.apache.iotdb.confignode.consensus.request.read.template.CheckTemplateSettablePlan;
 import org.apache.iotdb.confignode.consensus.request.read.template.GetAllSchemaTemplatePlan;
 import org.apache.iotdb.confignode.consensus.request.read.template.GetAllTemplateSetInfoPlan;
@@ -115,6 +116,11 @@ import org.apache.iotdb.confignode.consensus.request.write.sync.PreCreatePipePla
 import org.apache.iotdb.confignode.consensus.request.write.sync.RecordPipeMessagePlan;
 import org.apache.iotdb.confignode.consensus.request.write.sync.SetPipeStatusPlanV1;
 import org.apache.iotdb.confignode.consensus.request.write.sync.ShowPipePlanV1;
+import org.apache.iotdb.confignode.consensus.request.write.table.AddTableColumnPlan;
+import org.apache.iotdb.confignode.consensus.request.write.table.CommitCreateTablePlan;
+import org.apache.iotdb.confignode.consensus.request.write.table.PreCreateTablePlan;
+import org.apache.iotdb.confignode.consensus.request.write.table.RollbackCreateTablePlan;
+import org.apache.iotdb.confignode.consensus.request.write.table.SetTablePropertiesPlan;
 import org.apache.iotdb.confignode.consensus.request.write.template.CommitSetSchemaTemplatePlan;
 import org.apache.iotdb.confignode.consensus.request.write.template.CreateSchemaTemplatePlan;
 import org.apache.iotdb.confignode.consensus.request.write.template.DropSchemaTemplatePlan;
@@ -395,6 +401,24 @@ public abstract class ConfigPhysicalPlan implements IConsensusRequest {
           break;
         case ExtendSchemaTemplate:
           plan = new ExtendSchemaTemplatePlan();
+          break;
+        case PreCreateTable:
+          plan = new PreCreateTablePlan();
+          break;
+        case RollbackCreateTable:
+          plan = new RollbackCreateTablePlan();
+          break;
+        case CommitCreateTable:
+          plan = new CommitCreateTablePlan();
+          break;
+        case AddTableColumn:
+          plan = new AddTableColumnPlan();
+          break;
+        case SetTableProperties:
+          plan = new SetTablePropertiesPlan();
+          break;
+        case ShowTable:
+          plan = new ShowTablePlan();
           break;
         case GetNodePathsPartition:
           plan = new GetNodePathsPartitionPlan();

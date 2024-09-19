@@ -69,7 +69,7 @@ public class SubscriptionConnectorSubtaskLifeCycle extends PipeConnectorSubtaskL
   }
 
   @Override
-  public synchronized boolean deregister(final String ignored) {
+  public synchronized boolean deregister(final String ignored, int regionId) {
     if (registeredTaskCount <= 0) {
       throw new IllegalStateException("registeredTaskCount <= 0");
     }
@@ -103,6 +103,6 @@ public class SubscriptionConnectorSubtaskLifeCycle extends PipeConnectorSubtaskL
     // when dropping the subscription.
     final String consumerGroupId = ((SubscriptionConnectorSubtask) subtask).getConsumerGroupId();
     final String topicName = ((SubscriptionConnectorSubtask) subtask).getTopicName();
-    SubscriptionAgent.broker().unbindPrefetchingQueue(consumerGroupId, topicName, false);
+    SubscriptionAgent.broker().unbindPrefetchingQueue(consumerGroupId, topicName);
   }
 }
