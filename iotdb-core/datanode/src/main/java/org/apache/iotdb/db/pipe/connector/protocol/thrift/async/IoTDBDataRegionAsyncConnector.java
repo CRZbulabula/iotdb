@@ -124,7 +124,9 @@ public class IoTDBDataRegionAsyncConnector extends IoTDBConnector {
             parameters.getBooleanOrDefault(
                 Arrays.asList(SINK_LEADER_CACHE_ENABLE_KEY, CONNECTOR_LEADER_CACHE_ENABLE_KEY),
                 CONNECTOR_LEADER_CACHE_ENABLE_DEFAULT_VALUE),
-            loadBalanceStrategy);
+            loadBalanceStrategy,
+            shouldReceiverConvertOnTypeMismatch,
+            loadTsFileStrategy);
 
     if (isTabletBatchModeEnabled) {
       tabletBatchBuilder = new PipeTransferBatchReqBuilder(parameters);
@@ -212,8 +214,6 @@ public class IoTDBDataRegionAsyncConnector extends IoTDBConnector {
       // We increase the reference count for this event to determine if the event may be released.
       if (!pipeInsertNodeTabletInsertionEvent.increaseReferenceCount(
           IoTDBDataRegionAsyncConnector.class.getName())) {
-        pipeInsertNodeTabletInsertionEvent.decreaseReferenceCount(
-            IoTDBDataRegionAsyncConnector.class.getName(), false);
         return;
       }
 
@@ -238,8 +238,6 @@ public class IoTDBDataRegionAsyncConnector extends IoTDBConnector {
       // We increase the reference count for this event to determine if the event may be released.
       if (!pipeRawTabletInsertionEvent.increaseReferenceCount(
           IoTDBDataRegionAsyncConnector.class.getName())) {
-        pipeRawTabletInsertionEvent.decreaseReferenceCount(
-            IoTDBDataRegionAsyncConnector.class.getName(), false);
         return;
       }
 
@@ -316,8 +314,6 @@ public class IoTDBDataRegionAsyncConnector extends IoTDBConnector {
     // We increase the reference count for this event to determine if the event may be released.
     if (!pipeTsFileInsertionEvent.increaseReferenceCount(
         IoTDBDataRegionAsyncConnector.class.getName())) {
-      pipeTsFileInsertionEvent.decreaseReferenceCount(
-          IoTDBDataRegionAsyncConnector.class.getName(), false);
       return;
     }
 
@@ -469,6 +465,7 @@ public class IoTDBDataRegionAsyncConnector extends IoTDBConnector {
    *
    * @param event {@link Event} to retry
    */
+  @SuppressWarnings("java:S899")
   public void addFailureEventToRetryQueue(final Event event) {
     if (event instanceof EnrichedEvent && ((EnrichedEvent) event).isReleased()) {
       return;
@@ -513,15 +510,16 @@ public class IoTDBDataRegionAsyncConnector extends IoTDBConnector {
 
   //////////////////////////// Operations for close ////////////////////////////
 
-  /**
-   * When a pipe is dropped, the connector maybe reused and will not be closed. So we just discard
-   * its queued events in the output pipe connector.
-   */
-  public synchronized void discardEventsOfPipe(final String pipeNameToDrop) {
+  @Override
+  public synchronized void discardEventsOfPipe(final String pipeNameToDrop, final int regionId) {
+    if (isTabletBatchModeEnabled) {
+      tabletBatchBuilder.discardEventsOfPipe(pipeNameToDrop, regionId);
+    }
     retryEventQueue.removeIf(
         event -> {
           if (event instanceof EnrichedEvent
-              && pipeNameToDrop.equals(((EnrichedEvent) event).getPipeName())) {
+              && pipeNameToDrop.equals(((EnrichedEvent) event).getPipeName())
+              && regionId == ((EnrichedEvent) event).getRegionId()) {
             ((EnrichedEvent) event)
                 .clearReferenceCount(IoTDBDataRegionAsyncConnector.class.getName());
             return true;
@@ -540,6 +538,14 @@ public class IoTDBDataRegionAsyncConnector extends IoTDBConnector {
 
     if (tabletBatchBuilder != null) {
       tabletBatchBuilder.close();
+    }
+
+    try {
+      if (clientManager != null) {
+        clientManager.close();
+      }
+    } catch (final Exception e) {
+      LOGGER.warn("Failed to close client manager.", e);
     }
 
     super.close();

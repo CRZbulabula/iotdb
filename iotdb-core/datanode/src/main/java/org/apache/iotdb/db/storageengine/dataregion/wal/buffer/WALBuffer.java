@@ -30,6 +30,7 @@ import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertNode;
 import org.apache.iotdb.db.service.metrics.WritingMetrics;
 import org.apache.iotdb.db.storageengine.dataregion.wal.checkpoint.Checkpoint;
 import org.apache.iotdb.db.storageengine.dataregion.wal.checkpoint.CheckpointManager;
+import org.apache.iotdb.db.storageengine.dataregion.wal.exception.BrokenWALFileException;
 import org.apache.iotdb.db.storageengine.dataregion.wal.exception.WALNodeClosedException;
 import org.apache.iotdb.db.storageengine.dataregion.wal.io.WALMetaData;
 import org.apache.iotdb.db.storageengine.dataregion.wal.utils.WALFileStatus;
@@ -196,8 +197,9 @@ public class WALBuffer extends AbstractWALBuffer {
   @Override
   public void write(WALEntry walEntry) {
     if (isClosed) {
-      logger.error(
-          "Fail to write WALEntry into wal node-{} because this node is closed.", identifier);
+      logger.warn(
+          "Fail to write WALEntry into wal node-{} because this node is closed. It's ok to see this log during data region deletion.",
+          identifier);
       walEntry.getWalFlushListener().fail(new WALNodeClosedException(identifier));
       return;
     }
@@ -382,8 +384,18 @@ public class WALBuffer extends AbstractWALBuffer {
    * This view uses workingBuffer lock-freely because workingBuffer is only updated by
    * serializeThread and this class is only used by serializeThread.
    */
-  private class ByteBufferView implements IWALByteBufferView {
+  private class ByteBufferView extends IWALByteBufferView {
     private int flushedBytesNum = 0;
+
+    @Override
+    public void write(int b) {
+      put((byte) b);
+    }
+
+    @Override
+    public void write(byte[] b) {
+      put(b);
+    }
 
     private void ensureEnoughSpace(int bytesNum) {
       if (workingBuffer.remaining() < bytesNum) {
@@ -740,14 +752,20 @@ public class WALBuffer extends AbstractWALBuffer {
             return WALMetaData.readFromWALFile(
                     file, FileChannel.open(file.toPath(), StandardOpenOption.READ))
                 .getMemTablesId();
+          } catch (BrokenWALFileException e) {
+            logger.warn(
+                "Fail to read memTable ids from the wal file {} of wal node {}: {}",
+                id,
+                identifier,
+                e.getMessage());
           } catch (IOException e) {
             logger.warn(
                 "Fail to read memTable ids from the wal file {} of wal node {}.",
                 id,
                 identifier,
                 e);
-            return Collections.emptySet();
           }
+          return Collections.emptySet();
         });
   }
 

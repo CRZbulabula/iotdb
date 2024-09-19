@@ -38,6 +38,8 @@ import org.apache.iotdb.db.exception.metadata.PathAlreadyExistException;
 import org.apache.iotdb.db.exception.metadata.SchemaDirCreationFailureException;
 import org.apache.iotdb.db.exception.metadata.SchemaQuotaExceededException;
 import org.apache.iotdb.db.queryengine.common.schematree.ClusterSchemaTree;
+import org.apache.iotdb.db.queryengine.plan.planner.plan.node.metadata.read.TableDeviceAttributeUpdateNode;
+import org.apache.iotdb.db.queryengine.plan.relational.planner.node.CreateOrUpdateTableDeviceNode;
 import org.apache.iotdb.db.schemaengine.metric.ISchemaRegionMetric;
 import org.apache.iotdb.db.schemaengine.metric.SchemaRegionCachedMetric;
 import org.apache.iotdb.db.schemaengine.rescon.CachedSchemaRegionStatistics;
@@ -194,8 +196,7 @@ public class SchemaRegionPBTreeImpl implements ISchemaRegion {
 
     if (config.getSchemaRegionConsensusProtocolClass().equals(ConsensusFactory.RATIS_CONSENSUS)) {
       long memCost = config.getSchemaRatisConsensusLogAppenderBufferSizeMax();
-      if (!SystemInfo.getInstance()
-          .addDirectBufferMemoryCost(config.getSchemaRatisConsensusLogAppenderBufferSizeMax())) {
+      if (!SystemInfo.getInstance().addDirectBufferMemoryCost(memCost)) {
         throw new MetadataException(
             "Total allocated memory for direct buffer will be "
                 + (SystemInfo.getInstance().getDirectBufferMemoryCost() + memCost)
@@ -329,7 +330,7 @@ public class SchemaRegionPBTreeImpl implements ISchemaRegion {
   public void writeToMLog(ISchemaRegionPlan schemaRegionPlan) throws IOException {
     if (usingMLog && !isRecovering) {
       logWriter.write(schemaRegionPlan);
-      regionStatistics.setMlogLength(logWriter.position());
+      regionStatistics.setMLogLength(logWriter.position());
     }
   }
 
@@ -768,7 +769,7 @@ public class SchemaRegionPBTreeImpl implements ISchemaRegion {
               Objects.nonNull(aliasList) ? aliasList.remove(i) : null,
               Objects.nonNull(tagsList) ? tagsList.remove(i) : null,
               Objects.nonNull(attributesList) ? attributesList.remove(i) : null,
-              prefixPath.concatNode(measurements.get(i)));
+              prefixPath.concatAsMeasurementPath(measurements.get(i)));
           if (Objects.nonNull(tagOffsets) && !tagOffsets.isEmpty()) {
             tagOffsets.remove(i);
           }
@@ -1429,6 +1430,22 @@ public class SchemaRegionPBTreeImpl implements ISchemaRegion {
   }
 
   @Override
+  public void createOrUpdateTableDevice(
+      final CreateOrUpdateTableDeviceNode createOrUpdateTableDeviceNode) {
+    throw new UnsupportedOperationException("TableModel does not support PBTree yet.");
+  }
+
+  @Override
+  public void updateTableDeviceAttribute(final TableDeviceAttributeUpdateNode updateNode) {
+    throw new UnsupportedOperationException("TableModel does not support PBTree yet.");
+  }
+
+  @Override
+  public void deleteTableDevice(String table) {
+    throw new UnsupportedOperationException("TableModel does not support PBTree yet.");
+  }
+
+  @Override
   public ISchemaReader<IDeviceSchemaInfo> getDeviceReader(IShowDevicesPlan showDevicesPlan)
       throws MetadataException {
     return mtree.getDeviceReader(showDevicesPlan);
@@ -1459,6 +1476,18 @@ public class SchemaRegionPBTreeImpl implements ISchemaRegion {
   public ISchemaReader<INodeSchemaInfo> getNodeReader(IShowNodesPlan showNodesPlan)
       throws MetadataException {
     return mtree.getNodeReader(showNodesPlan);
+  }
+
+  @Override
+  public ISchemaReader<IDeviceSchemaInfo> getTableDeviceReader(final PartialPath pathPattern)
+      throws MetadataException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public ISchemaReader<IDeviceSchemaInfo> getTableDeviceReader(
+      String table, List<Object[]> devicePathList) throws MetadataException {
+    throw new UnsupportedOperationException();
   }
 
   // endregion
