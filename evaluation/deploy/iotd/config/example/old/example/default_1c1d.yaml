@@ -1,0 +1,116 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing,
+#  software distributed under the License is distributed on an
+#  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+#  KIND, either express or implied.  See the License for the
+#  specific language governing permissions and limitations
+#  under the License.
+#
+
+# 通用配置
+global:
+  # IoTDB 部署分发目录，如果值为空则从iotdb_download_url指定地址下载
+  iotdb_zip_dir: "/iotdb/iotdb-deploy.zip"
+  # IoTDB 下载地址，如果iotdb_zip_dir 没有指定则从下面指定地址下载
+  iotdb_download_url: "https://dlcdn.apache.org/iotdb/1.1.0/apache-iotdb-1.1.0-all-bin.zip"
+  # jdk 本地目录，可使用该 jdk 路径进行上传部署至目标节点。
+  jdk_tar_dir: "/iotdb/jdk1.8.0_211.tar.gz"
+  # jdk 远程机器部署目录，会将 jdk 部署到目标节点该文件夹下,如果jdk_deploy_dir设置值，启动iotdb时会使用该jdk，如果没有设置值则使用机器配置的JAVA_HOME
+  jdk_deploy_dir: "/iotdb/java"
+  # jdk 解压后的目录名字默认是jdk_iotdb
+  #jdk_dir_name: jdk_iotdb
+  # iotdb 要上传到服务器的本地jar目录，或者使用zip压缩后的xxx.zip，iotdb 升级时使用的参数
+  #iotdb_lib_dir: /root/iotdb/lib
+  # iotdb 解压后的目录名称默认是iotdb
+  #iotdb_dir_name: iotdb
+  # 以下均为各节点可单独配置的项，若节点未配置，则采用通用配置
+  # ssh登录部署机器的用户名
+  user: "root"
+  # ssh登录的密码, 如果password未指定, 请确保已配置节点之间ssh登录免密钥
+  password: "root"
+  # 密钥登陆如果password 有值优先使用password否则使用pkey登陆
+  pkey: "/xxx/xxx"
+  # ssh登录端口
+  ssh_port: 22
+  # iotdb 部署目录，会把 iotdb 部署到目标节点该文件夹下
+  #deploy_dir: "/iotdb"
+  # cn_target_config_node_list指向存活的ConfigNode; 如果是首次启动的ConfigNode node1, 则cn_target_config_node_list指向confignode_1自身
+  cn_target_config_node_list: 10.0.1.14:10710
+  # dn_target_config_node_list指向存活的ConfigNode, 默认指向confignode_x
+  dn_target_config_node_list: 10.0.1.14:10710
+
+  datanode-env.sh:
+    HEAP_MEMORY: 2G
+    MAX_DIRECT_MEMORY_SIZE: 2G
+    #datanode-env.sh 扩展配置
+    #extra_opts: |
+      #IOTDB_JMX_OPTS="$IOTDB_JMX_OPTS -XX:+UseG1GC"
+      #IOTDB_JMX_OPTS="$IOTDB_JMX_OPTS -XX:MaxGCPauseMillis=200"
+
+  confignode-env.sh:
+    HEAP_MEMORY: 2G
+    MAX_DIRECT_MEMORY_SIZE: 2G
+    #confignode-env.sh 扩展配置
+    #extra_opts: |
+      #IOTDB_JMX_OPTS="$IOTDB_JMX_OPTS -XX:+UseG1GC"
+      #IOTDB_JMX_OPTS="$IOTDB_JMX_OPTS -XX:MaxGCPauseMillis=200"
+
+  #iotdb-confignode.properties:
+    #cn_system_dir: "/iotdb/iotdb-data/confignode/system"
+    #cn_consensus_dir: "/iotdb/iotdb-data/confignode/consensus"
+  #iotdb-datanode.properties:
+    #dn_data_dirs: "/iotdb/iotdb-data/datanode/data"
+    #dn_consensus_dir: "/iotdb/iotdb-data/datanode/consensus"
+    #dn_system_dir: "/iotdb/iotdb-data/datanode/system"
+
+  # 集群所有节点需要保持一致的配置，iotdb-common.property 文件里的配置项均可添加这个配置里
+  #iotdb-common.properties:
+    #config_node_consensus_protocol_class: "org.apache.iotdb.consensus.ratis.RatisConsensus"
+    #schema_replication_factor: 1
+    #schema_region_consensus_protocol_class: "org.apache.iotdb.consensus.ratis.RatisConsensus"
+    #data_replication_factor: 1
+    #data_region_consensus_protocol_class: "org.apache.iotdb.consensus.iot.IoTConsensus"
+
+# ConfigNodes配置
+# 默认将第一个启动的ConfigNode节点node1当作Seed-ConfigNode
+confignode_servers:
+  # name 充当节点标识符的作用, 不是节点的真实 hostname。两个节点的 name 字段不能相同
+  - name: confignode_1
+    deploy_dir: "/iotdb/iotdb-deploy/confignode1"
+    iotdb-confignode.properties:
+      # 配置为ip或hostname
+      cn_internal_address: 10.0.1.14
+      # cn_target_config_node_list指向存活的ConfigNode; 如果是首次启动的ConfigNode node1, 则cn_target_config_node_list指向confignode_1自身
+      #cn_target_config_node_list: 10.0.1.11:10710
+      cn_internal_port: 10710
+      #cn_consensus_port: 10720
+    #iotdb-common.properties:
+    # primitive_array_size: 64
+
+datanode_servers:
+  - name: datanode_1
+    deploy_dir: "/iotdb/iotdb-deploy/datanode1"
+    iotdb-datanode.properties:
+      # datanode rpc地址
+      dn_rpc_address: 10.0.1.14
+      # datanode 内部通信地址
+      dn_internal_address: 10.0.1.14
+      # dn_target_config_node_list指向存活的ConfigNode, 默认指向confignode_x
+      #dn_target_config_node_list: 10.0.1.11:10710
+      dn_rpc_port: 6667
+      dn_internal_port: 10730
+      #dn_mpp_data_exchange_port: 10740
+      #dn_schema_region_consensus_port: 10750
+      #dn_data_region_consensus_port: 10760
+      dn_data_dirs: "/iotdb/iotdb-data/datanode1/data"
+    #iotdb-common.properties:
+      #primitive_array_size: 64

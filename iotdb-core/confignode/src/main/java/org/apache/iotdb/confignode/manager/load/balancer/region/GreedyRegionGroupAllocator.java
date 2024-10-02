@@ -68,49 +68,49 @@ public class GreedyRegionGroupAllocator implements IRegionGroupAllocator {
 
   @Override
   public TRegionReplicaSet generateOptimalRegionReplicasDistribution(
-    Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
-    Map<Integer, Double> freeDiskSpaceMap,
-    List<TRegionReplicaSet> allocatedRegionGroups,
-    List<TRegionReplicaSet> databaseAllocatedRegionGroups,
-    int replicationFactor,
-    TConsensusGroupId consensusGroupId) {
+      Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
+      Map<Integer, Double> freeDiskSpaceMap,
+      List<TRegionReplicaSet> allocatedRegionGroups,
+      List<TRegionReplicaSet> databaseAllocatedRegionGroups,
+      int replicationFactor,
+      TConsensusGroupId consensusGroupId) {
     // Build weightList order by number of regions allocated asc
     List<TDataNodeLocation> weightList =
-      buildWeightList(availableDataNodeMap, freeDiskSpaceMap, allocatedRegionGroups);
+        buildWeightList(availableDataNodeMap, freeDiskSpaceMap, allocatedRegionGroups);
     return new TRegionReplicaSet(
-      consensusGroupId,
-      weightList.stream().limit(replicationFactor).collect(Collectors.toList()));
+        consensusGroupId,
+        weightList.stream().limit(replicationFactor).collect(Collectors.toList()));
   }
 
   private List<TDataNodeLocation> buildWeightList(
-    Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
-    Map<Integer, Double> freeDiskSpaceMap,
-    List<TRegionReplicaSet> allocatedRegionGroups) {
+      Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
+      Map<Integer, Double> freeDiskSpaceMap,
+      List<TRegionReplicaSet> allocatedRegionGroups) {
 
     // Map<DataNodeId, Region count>
     Map<Integer, Integer> regionCounter = new HashMap<>(availableDataNodeMap.size());
     allocatedRegionGroups.forEach(
-      regionReplicaSet ->
-        regionReplicaSet
-          .getDataNodeLocations()
-          .forEach(
-            dataNodeLocation ->
-              regionCounter.merge(dataNodeLocation.getDataNodeId(), 1, Integer::sum)));
+        regionReplicaSet ->
+            regionReplicaSet
+                .getDataNodeLocations()
+                .forEach(
+                    dataNodeLocation ->
+                        regionCounter.merge(dataNodeLocation.getDataNodeId(), 1, Integer::sum)));
 
     /* Construct priority map */
     List<DataNodeEntry> entryList = new ArrayList<>();
     availableDataNodeMap.forEach(
-      (datanodeId, dataNodeConfiguration) ->
-        entryList.add(
-          new DataNodeEntry(
-            datanodeId,
-            regionCounter.getOrDefault(datanodeId, 0),
-            freeDiskSpaceMap.getOrDefault(datanodeId, 0d))));
+        (datanodeId, dataNodeConfiguration) ->
+            entryList.add(
+                new DataNodeEntry(
+                    datanodeId,
+                    regionCounter.getOrDefault(datanodeId, 0),
+                    freeDiskSpaceMap.getOrDefault(datanodeId, 0d))));
 
     // Sort weightList
     return entryList.stream()
-      .sorted()
-      .map(entry -> availableDataNodeMap.get(entry.dataNodeId).getLocation())
-      .collect(Collectors.toList());
+        .sorted()
+        .map(entry -> availableDataNodeMap.get(entry.dataNodeId).getLocation())
+        .collect(Collectors.toList());
   }
 }

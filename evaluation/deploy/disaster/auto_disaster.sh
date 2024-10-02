@@ -2,34 +2,79 @@
 
 USER="ubuntu"
 
-CLIENT1_HOST="iotdb2"
-CLIENT2_HOST="iotdb3"
-CLIENT3_HOST="iotdb20"
-CLIENT4_HOST="iotdb21"
+BM1_HOST="iotdb2"
+BM2_HOST="iotdb3"
+BM3_HOST="iotdb20"
+BM4_HOST="iotdb21"
 RECOVERY_HOST="iotdb7"
 
-LEADER_ALGS=("CFD" "RANDOM" "GREEDY" "CFD" "CFD" "CFD")
-REPLICA_ALGS=("PGR" "PGR" "PGR" "COPY_SET" "TIERED_REPLICATION" "GREEDY")
+# EXPERIMENT_COMBOS=(
+#     "GREEDY PGR"
+#     "RANDOM PGR"
+#     "CFD PGR"
+#     "CFD COPY_SET"
+#     "CFD TIERED_REPLICATION"
+#     "CFD GREEDY"
+# )
 
+# EXPERIMENT_COUNTS=(0 0 0 0 0 0)
 
-YAML_PATH="/home/ubuntu/evaluation/iotd/config/disaster.yaml"
+# for ((i = 0; i < ${#EXPERIMENT_COMBOS[@]}; i++)); do
+#     combo=${EXPERIMENT_COMBOS[$i]}
+#     count=${EXPERIMENT_COUNTS[$i]}
+    
+#     leader_alg=$(echo $combo | awk '{print $1}')
+#     replica_alg=$(echo $combo | awk '{print $2}')
+    
+#     for ((j = 0; j < $count; j++)); do
+#         LEADER_ALGS+=("$leader_alg")
+#         REPLICA_ALGS+=("$replica_alg")
+#     done
+# done
+
+EXPERIMENT_COMBOS=(
+    "CFD GREEDY"
+    "CFD PGR"
+    "CFD COPY_SET"
+    "CFD TIERED_REPLICATION"
+)
+
+LEADER_ALGS=()
+REPLICA_ALGS=()
+
+for ((j = 0; j < 10; j++)); do
+    for ((i = 0; i < ${#EXPERIMENT_COMBOS[@]}; i++)); do
+        combo=${EXPERIMENT_COMBOS[$i]}
+        leader_alg=$(echo $combo | awk '{print $1}')
+        replica_alg=$(echo $combo | awk '{print $2}')
+        LEADER_ALGS+=("$leader_alg")
+        REPLICA_ALGS+=("$replica_alg")
+    done
+done
+
+echo "LEADER_ALGS: ${LEADER_ALGS[@]}"
+echo "REPLICA_ALGS: ${REPLICA_ALGS[@]}"
+
+FILE_NAME="placement_disaster"
+YAML_PATH="/home/ubuntu/evaluation/iotd/config/${FILE_NAME}.yaml"
+echo "YAML_PATH: $YAML_PATH"
 
 for ((j = 0; j < ${#REPLICA_ALGS[@]}; j++)); do
     leader_alg=${LEADER_ALGS[$j]}
     replica_alg=${REPLICA_ALGS[$j]}
     echo "$(date): Begin testing leader_alg=$leader_alg, replica_alg=$replica_alg"
 
-    bash /home/ubuntu/evaluation/disaster/stop_all_client.sh
+    bash /home/ubuntu/evaluation/disaster/stop_all_bm.sh
     bash /home/ubuntu/evaluation/disaster/stop_recovery.sh
     echo "clean side effect"
 
-    # 修改 IoTDB 的配置
+    # Modify IoTDB deployment configuration
     sed -i "/leader_distribution_policy:/s/:.*/: $leader_alg/" $YAML_PATH
     sed -i "/region_group_allocate_policy:/s/:.*/: $replica_alg/" $YAML_PATH
     grep "leader_distribution_policy" $YAML_PATH
     grep "region_group_allocate_policy" $YAML_PATH
     
-    # 启动 IoTDB
+    # Start IoTDB
     sudo /home/ubuntu/evaluation/iotd/sbin/iotd cluster stop disaster
     sleep 2
     sudo /home/ubuntu/evaluation/iotd/sbin/iotd cluster destroy disaster
@@ -43,34 +88,42 @@ for ((j = 0; j < ${#REPLICA_ALGS[@]}; j++)); do
     sleep 2
     echo "$(date): start iotdb cluster"
 
-    # 启动 client-1
-    ssh $USER@$CLIENT1_HOST "nohup bash /home/ubuntu/start_client.sh 1 > /dev/null 2>&1 &"
-    echo "$(date): start remote client1"
-    ssh $USER@$CLIENT2_HOST "nohup bash /home/ubuntu/start_client.sh 1 > /dev/null 2>&1 &"
-    echo "$(date): start remote client2"
+    # Start benchmark-1
+    ssh $USER@$BM1_HOST "nohup bash /home/ubuntu/start_bm.sh 1 > /dev/null 2>&1 &"
+    echo "$(date): start remote bm1"
+    ssh $USER@$BM2_HOST "nohup bash /home/ubuntu/start_bm.sh 1 > /dev/null 2>&1 &"
+    echo "$(date): start remote bm2"
+    ssh $USER@$BM3_HOST "nohup bash /home/ubuntu/start_bm.sh 1 > /dev/null 2>&1 &"
+    echo "$(date): start remote bm3"
+    ssh $USER@$BM4_HOST "nohup bash /home/ubuntu/start_bm.sh 1 > /dev/null 2>&1 &"
+    echo "$(date): start remote bm4"
 
-    # 启动 disaster
+    # Start disaster
     ssh $USER@$RECOVERY_HOST "nohup bash /home/ubuntu/start_recovery.sh > /dev/null 2>&1 &"
     echo "$(date): start remote recovery"
 
-    # 确保数据写入稳定
+    # Ensure data writing stable
     sleep 800
 
-    # 关闭 client
-    bash /home/ubuntu/evaluation/disaster/stop_all_client.sh
-    echo "stop client-1"
+    # Stop benchmark-1
+    bash /home/ubuntu/evaluation/disaster/stop_all_bm.sh
+    echo "stop BM-1"
 
-    # 启动 client-2
-    ssh $USER@$CLIENT3_HOST "nohup bash /home/ubuntu/start_client.sh 2 > /dev/null 2>&1 &"
-    echo "$(date): start remote client1"
-    ssh $USER@$CLIENT4_HOST "nohup bash /home/ubuntu/start_client.sh 2 > /dev/null 2>&1 &"
-    echo "$(date): start remote client2"
+    # Start benchmark-2
+    ssh $USER@$BM1_HOST "nohup bash /home/ubuntu/start_bm.sh 2 > /dev/null 2>&1 &"
+    echo "$(date): start remote bm1"
+    ssh $USER@$BM2_HOST "nohup bash /home/ubuntu/start_bm.sh 2 > /dev/null 2>&1 &"
+    echo "$(date): start remote bm2"
+    ssh $USER@$BM3_HOST "nohup bash /home/ubuntu/start_bm.sh 2 > /dev/null 2>&1 &"
+    echo "$(date): start remote bm3"
+    ssh $USER@$BM4_HOST "nohup bash /home/ubuntu/start_bm.sh 2 > /dev/null 2>&1 &"
+    echo "$(date): start remote bm4"
 
     sleep 1200
 
-    # 关闭 client
-    bash /home/ubuntu/evaluation/disaster/stop_all_client.sh
-    echo "stop client-2"
+    # Stop benchmark-2
+    bash /home/ubuntu/evaluation/disaster/stop_all_bm.sh
+    echo "stop BM-2"
 
     sleep 2
     echo "$(date): End testing leader_alg=$leader_alg, replica_alg=$replica_alg"

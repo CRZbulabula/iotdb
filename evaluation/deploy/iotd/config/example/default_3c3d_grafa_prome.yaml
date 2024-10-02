@@ -1,0 +1,219 @@
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing,
+#  software distributed under the License is distributed on an
+#  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+#  KIND, either express or implied.  See the License for the
+#  specific language governing permissions and limitations
+#  under the License.
+#
+
+# 通用配置
+global:
+  # IoTDB 部署分发目录，如果值为空则从iotdb_download_url指定地址下载
+  iotdb_zip_dir: "/iotdb/iotdb-deploy.zip"
+  # IoTDB 下载地址，如果iotdb_zip_dir 没有指定则从下面指定地址下载
+  iotdb_download_url: "https://dlcdn.apache.org/iotdb/1.1.0/apache-iotdb-1.1.0-all-bin.zip"
+  # jdk 本地目录，可使用该 jdk 路径进行上传部署至目标节点。
+  jdk_tar_dir: "/iotdb/jdk1.8.0_211.tar.gz"
+  # jdk 远程机器部署目录，会将 jdk 部署到目标节点该文件夹下,如果jdk_deploy_dir设置值，启动iotdb时会使用该jdk，如果没有设置值则使用机器配置的JAVA_HOME
+  jdk_deploy_dir: "/iotdb/java"
+  # jdk 解压后的目录名字默认是jdk_iotdb
+  #jdk_dir_name: jdk_iotdb
+  # iotdb 要上传到服务器的本地jar目录，或者使用zip压缩后的xxx.zip，iotdb 升级时使用的参数
+  #iotdb_lib_dir: /root/iotdb/lib
+  # iotdb 解压后的目录名称默认是iotdb
+  #iotdb_dir_name: iotdb
+  # 以下均为各节点可单独配置的项，若节点未配置，则采用通用配置
+  # ssh登录部署机器的用户名
+  user: "root"
+  # ssh登录的密码, 如果password未指定, 请确保已配置节点之间ssh登录免密钥
+  password: "root"
+  # 密钥登陆如果password 有值优先使用password否则使用pkey登陆
+  pkey: "/xxx/xxx"
+  # ssh登录端口
+  ssh_port: 22
+  #iotdb_admin_user: root
+  # iotdb 密码
+  #iotdb_admin_password: root
+  # iotdb 部署目录，会把 iotdb 部署到目标节点该文件夹下
+  #deploy_dir: "/iotdb"
+  # cn_seed_config_node指向存活的ConfigNode; 如果是首次启动的ConfigNode node1, 则cn_seed_config_node指向confignode_1自身
+  cn_seed_config_node: 10.0.1.14:10710
+  # dn_seed_config_node指向存活的ConfigNode, 默认指向confignode_x
+  dn_seed_config_node: 10.0.1.14:10710
+
+  datanode-env.sh:
+    #MEMORY_SIZE: 2G
+    ON_HEAP_MEMORY: 2G
+    OFF_HEAP_MEMORY: 512M
+    #datanode-env.sh 扩展配置
+    #extra_opts: |
+      #IOTDB_JMX_OPTS="$IOTDB_JMX_OPTS -XX:+UseG1GC"
+      #IOTDB_JMX_OPTS="$IOTDB_JMX_OPTS -XX:MaxGCPauseMillis=200"
+
+  confignode-env.sh:
+    MEMORY_SIZE: 2G
+    #ON_HEAP_MEMORY: 2G
+    #OFF_HEAP_MEMORY: 512M
+    #confignode-env.sh 扩展配置
+    #extra_opts: |
+      #CONFIGNODE_JMX_OPTS="$CONFIGNODE_JMX_OPTS -XX:+UseG1GC"
+      #CONFIGNODE_JMX_OPTS="$CONFIGNODE_JMX_OPTS -XX:MaxGCPauseMillis=200"
+
+  iotdb-system.properties:
+    cluster_name: defaultCluster
+    config_node_consensus_protocol_class: "org.apache.iotdb.consensus.ratis.RatisConsensus"
+    schema_replication_factor: 3
+    schema_region_consensus_protocol_class: "org.apache.iotdb.consensus.ratis.RatisConsensus"
+    data_replication_factor: 2
+    data_region_consensus_protocol_class: "org.apache.iotdb.consensus.iot.IoTConsensus"
+
+# ConfigNodes配置
+# 默认将第一个启动的ConfigNode节点node1当作Seed-ConfigNode
+confignode_servers:
+  # name 充当节点标识符的作用, 不是节点的真实 hostname。两个节点的 name 字段不能相同
+  - name: confignode_1
+    deploy_dir: "/iotdb/iotdb-deploy/confignode1"
+    iotdb-system.properties:
+      # 配置为ip或hostname
+      cn_internal_address: 10.0.1.14
+      # cn_seed_config_node指向存活的ConfigNode; 如果是首次启动的ConfigNode node1, 则cn_seed_config_node指向confignode_1自身
+      #cn_seed_config_node: 10.0.1.11:10710
+      cn_internal_port: 10710
+      cn_metric_reporter_list: PROMETHEUS
+      cn_metric_level: IMPORTANT
+      cn_metric_prometheus_reporter_port: 9091
+      #cn_consensus_port: 10720
+    #iotdb-common.properties:
+    # primitive_array_size: 64
+  - name: confignode_2
+    deploy_dir: "/iotdb/iotdb-deploy/confignode2"
+    iotdb-system.properties:
+      # 配置为ip或hostname
+      cn_internal_address: 10.0.1.15
+      # cn_seed_config_node指向存活的ConfigNode; 如果是首次启动的ConfigNode node1, 则cn_seed_config_node指向confignode_1自身
+      #cn_seed_config_node: 10.0.1.11:10710
+      cn_internal_port: 10710
+      cn_metric_reporter_list: PROMETHEUS
+      cn_metric_level: IMPORTANT
+      cn_metric_prometheus_reporter_port: 9091
+      #cn_consensus_port: 10720
+    #iotdb-common.properties:
+    # primitive_array_size: 64
+
+  - name: confignode_3
+    deploy_dir: "/iotdb/iotdb-deploy/confignode3"
+    iotdb-system.properties:
+      # 配置为ip或hostname
+      cn_internal_address: 10.0.1.16
+      # cn_seed_config_node指向存活的ConfigNode; 如果是首次启动的ConfigNode node1, 则cn_seed_config_node指向confignode_1自身
+      #cn_seed_config_node: 10.0.1.11:10710
+      cn_internal_port: 10710
+      cn_metric_reporter_list: PROMETHEUS
+      cn_metric_level: IMPORTANT
+      cn_metric_prometheus_reporter_port: 9091
+      #cn_consensus_port: 10720
+    #iotdb-common.properties:
+    # primitive_array_size: 64
+
+datanode_servers:
+  - name: datanode_1
+    deploy_dir: "/iotdb/iotdb-deploy/datanode1"
+    iotdb-system.properties:
+      # datanode rpc地址
+      dn_rpc_address: 10.0.1.14
+      # datanode 内部通信地址
+      dn_internal_address: 10.0.1.14
+      # dn_seed_config_node指向存活的ConfigNode, 默认指向confignode_x
+      #dn_seed_config_node: 10.0.1.11:10710
+      dn_rpc_port: 6667
+      dn_internal_port: 10730
+      #dn_mpp_data_exchange_port: 10740
+      #dn_schema_region_consensus_port: 10750
+      #dn_data_region_consensus_port: 10760
+      dn_data_dirs: "/iotdb/iotdb-data/datanode1/data"
+      dn_metric_reporter_list: PROMETHEUS
+      dn_metric_level: IMPORTANT
+      dn_metric_prometheus_reporter_port: 9092
+    #iotdb-common.properties:
+      #primitive_array_size: 64
+  - name: datanode_2
+    deploy_dir: "/iotdb/iotdb-deploy/datanode2"
+    iotdb-system.properties:
+      # datanode rpc地址
+      dn_rpc_address: 10.0.1.15
+      # datanode 内部通信地址
+      dn_internal_address: 10.0.1.15
+      # dn_seed_config_node指向存活的ConfigNode, 默认指向confignode_x
+      #dn_seed_config_node: 10.0.1.11:10710
+      dn_rpc_port: 6667
+      dn_internal_port: 10730
+      #dn_mpp_data_exchange_port: 10740
+      #dn_schema_region_consensus_port: 10750
+      #dn_data_region_consensus_port: 10760
+      dn_data_dirs: /iotdb/iotdb-data/datanode2/data
+      dn_metric_reporter_list: PROMETHEUS
+      dn_metric_level: IMPORTANT
+      dn_metric_prometheus_reporter_port: 9092
+    #iotdb-common.properties:
+      #primitive_array_size: 64
+  - name: datanode_3
+    deploy_dir: "/iotdb/iotdb-deploy/datanode3"
+    iotdb-system.properties:
+      # datanode rpc地址
+      dn_rpc_address: 10.0.1.16
+      # datanode 内部通信地址
+      dn_internal_address: 10.0.1.16
+      # dn_seed_config_node指向存活的ConfigNode, 默认指向confignode_x
+      #dn_seed_config_node: 10.0.1.11:10710
+      dn_rpc_port: 6667
+      dn_internal_port: 10730
+      #dn_mpp_data_exchange_port: 10740
+      #dn_schema_region_consensus_port: 10750
+      #dn_data_region_consensus_port: 10760
+      dn_data_dirs: /iotdb/iotdb-data/datanode3/data
+      dn_metric_reporter_list: PROMETHEUS
+      dn_metric_level: IMPORTANT
+      dn_metric_prometheus_reporter_port: 9092
+    #iotdb-common.properties:
+      #primitive_array_size: 64
+
+grafana_server:
+  #grafana 解压后的目录名称，默认grafana_iotdb
+  #grafana_dir_name: grafana_iotdb
+  #grafana 服务器ip
+  host: 10.0.1.17
+  #grafana 端口，默认是3000
+  #grafana_port: 3000
+  #grafana 部署到指定服务器的目录
+  deploy_dir: /iotdb/grafana
+  #grafana 压缩包所在位置，后缀名 tar.gz 
+  grafana_tar_dir: /Users/grafana/grafana-enterprise-9.4.1.linux-amd64.tar.gz
+  #iotdb dashboards所在的路径,多个用逗号隔开
+  #dashboards: /Users/grafana/Apache-IoTDB-DataNode-Dashboard.json,/Users/grafana/Apache-IoTDB-ConfigNode-Dashboard.json,/Users/grafana/Apache-IoTDB-System-Dashboard.json,/Users/grafana/Apache-IoTDB-Performance-Overview-Dashboard.json
+
+prometheus_server:
+  #prometheus 解压后的目录名称，默认prometheus_iotdb
+  #prometheus_dir_name: prometheus_iotdb
+  #prometheus 所在服务器的ip
+  host: 10.0.1.17
+  #prometheus 端口，默认是9090
+  #prometheus_port: 9090
+  #prometheus 部署到指定机器的目录
+  deploy_dir: /iotd/promethus
+  #prometheus 压缩包所在位置，后缀名 tar.gz 
+  prometheus_tar_dir: /Users/prometheus/prometheus-2.46.0.linux-amd64.tar.gz
+  #默认保存数据天数 默认15天
+  #storage_tsdb_retention_time: 15d
+  #指定block可以保存的数据大小默认512MB ，注意单位KB, MB, GB, TB, PB, EB
+  #storage_tsdb_retention_size: 512MB
+
