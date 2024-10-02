@@ -90,16 +90,16 @@ public class RegionGroupAllocatorSimulation {
       //            LOGGER.info("{}, finish", dataNodeNum);
     }
 
-        FileWriter scatterW =
-            new FileWriter(
-                "/Users/yongzaodan/Desktop/simulation/tmp/scatter/r="
-                    + DATA_REPLICATION_FACTOR
-                    + ".log");
-        for (DataEntry entry : testResult) {
-          scatterW.write(entry.minScatterRatio + "\n");
-          scatterW.flush();
-        }
-        scatterW.close();
+//        FileWriter scatterW =
+//            new FileWriter(
+//                "/Users/yongzaodan/Desktop/simulation/tmp/scatter/r="
+//                    + DATA_REPLICATION_FACTOR
+//                    + ".log");
+//        for (DataEntry entry : testResult) {
+//          scatterW.write(entry.minScatterRatio + "\n");
+//          scatterW.flush();
+//        }
+//        scatterW.close();
   }
 
   private DataEntry singleTest(int N, int W) {
