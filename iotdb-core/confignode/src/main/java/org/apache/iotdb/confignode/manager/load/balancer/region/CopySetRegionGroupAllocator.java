@@ -62,8 +62,8 @@ public class CopySetRegionGroupAllocator implements IRegionGroupAllocator {
         permutation.set(i, permutation.get(pos));
         permutation.set(pos, tmp);
       }
+      p += 1;
       for (int i = 0; i + replicationFactor <= permutation.size(); i += replicationFactor) {
-        p += 1;
         List<Integer> copySet = new ArrayList<>();
         for (int j = 0; j < replicationFactor; j++) {
           int e = permutation.get(i + j);

@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
 
 public class CFDLeaderBalancerTest {
 
-  private static final MinCostFlowLeaderBalancer BALANCER = new MinCostFlowLeaderBalancer();
+  private static final CostFlowSelectionLeaderBalancer BALANCER = new CostFlowSelectionLeaderBalancer();
 
   private static final String DATABASE = "root.database";
 

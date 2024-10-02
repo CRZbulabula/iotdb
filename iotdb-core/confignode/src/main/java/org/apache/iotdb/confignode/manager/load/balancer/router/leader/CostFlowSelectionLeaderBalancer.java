@@ -36,7 +36,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Leader distribution balancer that uses minimum cost flow algorithm */
-public class MinCostFlowLeaderBalancer extends AbstractLeaderBalancer {
+public class CostFlowSelectionLeaderBalancer extends AbstractLeaderBalancer {
 
   private static final int INFINITY = Integer.MAX_VALUE;
 
@@ -71,7 +71,7 @@ public class MinCostFlowLeaderBalancer extends AbstractLeaderBalancer {
   private int maximumFlow = 0;
   private int minimumCost = 0;
 
-  public MinCostFlowLeaderBalancer() {
+  public CostFlowSelectionLeaderBalancer() {
     super();
     this.rNodeMap = new TreeMap<>();
     this.sDNodeMap = new TreeMap<>();

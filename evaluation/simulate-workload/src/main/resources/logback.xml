@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <property name="APP_NAME" value="simulate-workload" />
-
+    <property name="APP_NAME" value="simulate-workload"/>
     <appender name="APP_LOG" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <!--指定日志文件名称-->
         <file>./logs/simulate-workload-all.log</file>
@@ -43,12 +42,10 @@
             <level>INFO</level>
         </filter>
     </appender>
-
     <root level="INFO">
         <!--ref表示具体的appender name-->
-        <appender-ref ref="APP_LOG" />
+        <appender-ref ref="APP_LOG"/>
         <appender-ref ref="stdout"/>
         <appender-ref ref="ERRORLOG"/>
     </root>
-
 </configuration>

@@ -25,10 +25,11 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.commons.cluster.NodeStatus;
-import org.apache.iotdb.confignode.manager.load.balancer.region.CopySetRegionGroupAllocator;
+import org.apache.iotdb.confignode.manager.load.balancer.region.GreedyCopySetRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
+import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.AbstractLeaderBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.RandomLeaderBalancer;
+import org.apache.iotdb.confignode.manager.load.balancer.router.leader.CostFlowSelectionLeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.cache.node.NodeStatistics;
 
 import org.junit.BeforeClass;
@@ -53,7 +54,7 @@ public class RegionAllocatorAndLeaderBalancerCombinatorialManualTest {
 
   private static final int TEST_LOOP = 1;
   private static final int TEST_DATA_NODE_NUM = 16;
-  private static final int DATA_REGION_PER_DATA_NODE = 6;
+  private static final int DATA_REGION_PER_DATA_NODE = 8;
   private static final int DATA_REPLICATION_FACTOR = 2;
   private static final String DATABASE = "root.db";
 
@@ -62,8 +63,8 @@ public class RegionAllocatorAndLeaderBalancerCombinatorialManualTest {
   private static final Map<Integer, Double> FREE_SPACE_MAP = new TreeMap<>();
   private static final Map<Integer, NodeStatistics> DATA_NODE_STATISTICS_MAP = new TreeMap<>();
 
-  private static final IRegionGroupAllocator ALLOCATOR = new CopySetRegionGroupAllocator();
-  private static final AbstractLeaderBalancer BALANCER = new RandomLeaderBalancer();
+  private static final IRegionGroupAllocator ALLOCATOR = new PartiteGraphPlacementRegionGroupAllocator();
+  private static final AbstractLeaderBalancer BALANCER = new CostFlowSelectionLeaderBalancer();
 
   @BeforeClass
   public static void setUp() {
@@ -137,19 +138,6 @@ public class RegionAllocatorAndLeaderBalancerCombinatorialManualTest {
         regionCountList.add(regionCounter.getOrDefault(i, 0));
         scatterWidthList.add(scatterWidth);
       }
-      //      LOGGER.info(
-      //          "Loop: {}, Test :{}, {}",
-      //          loop,
-      //          ALLOCATOR.getClass().getSimpleName(),
-      //          BALANCER.getClass().getSimpleName());
-      //      LOGGER.info(
-      //          "Allocate {} DataRegionGroups for {} DataNodes", dataRegionGroupNum,
-      // TEST_DATA_NODE_NUM);
-      //      LOGGER.info(
-      //          "Scatter width avg: {}, min: {}, max: {}",
-      //          (double) scatterWidthSum / TEST_DATA_NODE_NUM,
-      //          minScatterWidth,
-      //          maxScatterWidth);
 
       /* Balance Leader */
       Map<String, List<TConsensusGroupId>> databaseRegionGroupMap =

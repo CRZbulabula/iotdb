@@ -58,8 +58,7 @@ public class GreedyLeaderBalancer extends AbstractLeaderBalancer {
     Map<Integer, Integer> leaderCounter = new TreeMap<>();
     regionLocationMap.forEach(
         (regionGroupId, dataNodeIds) -> {
-          int minCount = Integer.MAX_VALUE,
-              leaderId = regionLeaderMap.getOrDefault(regionGroupId, -1);
+          int minCount = Integer.MAX_VALUE, leaderId = -1;
           for (int dataNodeId : dataNodeIds) {
             if (isDataNodeAvailable(dataNodeId) && isRegionAvailable(regionGroupId, dataNodeId)) {
               // Select the DataNode with the minimal leader count as the new leader
@@ -69,6 +68,9 @@ public class GreedyLeaderBalancer extends AbstractLeaderBalancer {
                 leaderId = dataNodeId;
               }
             }
+          }
+          if (leaderId == -1) {
+            leaderId = regionLeaderMap.get(regionGroupId);
           }
           regionLeaderMap.put(regionGroupId, leaderId);
           leaderCounter.merge(leaderId, 1, Integer::sum);
