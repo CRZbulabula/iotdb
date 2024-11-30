@@ -34,7 +34,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Leader distribution balancer in LogStore, which employs the maximum flow algorithm */
+/** Refer from "LogStore: A Cloud-Native and Multi-Tenant Log Database" */
 public class LogStoreLeaderBalancer extends AbstractLeaderBalancer {
 
   private static final int INFINITY = Integer.MAX_VALUE;
