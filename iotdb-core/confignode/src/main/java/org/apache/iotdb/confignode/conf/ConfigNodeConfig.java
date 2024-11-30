@@ -289,6 +289,9 @@ public class ConfigNodeConfig {
 
   private long forceWalPeriodForConfigNodeSimpleInMs = 100;
 
+  // Dynamic leader balancing circle per heartbeat loops
+  private long dynamicLeaderBalancingCycle = Long.MAX_VALUE;
+
   public ConfigNodeConfig() {
     // empty constructor
   }
@@ -1196,5 +1199,13 @@ public class ConfigNodeConfig {
         getConfigNodeId(),
         new TEndPoint(getInternalAddress(), getInternalPort()),
         new TEndPoint(getInternalAddress(), getConsensusPort()));
+  }
+
+  public long getDynamicLeaderBalancingCycle() {
+    return dynamicLeaderBalancingCycle;
+  }
+
+  public void setDynamicLeaderBalancingCycle(long dynamicLeaderBalancingCycle) {
+    this.dynamicLeaderBalancingCycle = dynamicLeaderBalancingCycle;
   }
 }
