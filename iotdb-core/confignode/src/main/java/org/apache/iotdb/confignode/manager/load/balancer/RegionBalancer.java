@@ -31,10 +31,11 @@ import org.apache.iotdb.confignode.exception.NotEnoughDataNodeException;
 import org.apache.iotdb.confignode.manager.IManager;
 import org.apache.iotdb.confignode.manager.load.LoadManager;
 import org.apache.iotdb.confignode.manager.load.balancer.region.CopySetRegionGroupAllocator;
+import org.apache.iotdb.confignode.manager.load.balancer.region.GeminiRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.GreedyCopySetRegionGroupAllocator;
-import org.apache.iotdb.confignode.manager.load.balancer.region.GreedyRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
+import org.apache.iotdb.confignode.manager.load.balancer.region.RoundRobinRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.TieredReplicationAllocator;
 import org.apache.iotdb.confignode.manager.node.NodeManager;
 import org.apache.iotdb.confignode.manager.partition.PartitionManager;
@@ -57,8 +58,8 @@ public class RegionBalancer {
     this.configManager = configManager;
 
     switch (ConfigNodeDescriptor.getInstance().getConf().getRegionGroupAllocatePolicy()) {
-      case GREEDY:
-        this.regionGroupAllocator = new GreedyRegionGroupAllocator();
+      case ROUND_ROBIN:
+        this.regionGroupAllocator = new RoundRobinRegionGroupAllocator();
         break;
       case COPY_SET:
         this.regionGroupAllocator = new CopySetRegionGroupAllocator();
@@ -66,7 +67,10 @@ public class RegionBalancer {
       case TIERED_REPLICATION:
         this.regionGroupAllocator = new TieredReplicationAllocator();
         break;
-      case PGR:
+      case GEMINI:
+        this.regionGroupAllocator = new GeminiRegionGroupAllocator();
+        break;
+      case PGP:
         this.regionGroupAllocator = new PartiteGraphPlacementRegionGroupAllocator();
         break;
       case GCR:
@@ -166,10 +170,12 @@ public class RegionBalancer {
   }
 
   public enum RegionGroupAllocatePolicy {
-    GREEDY,
+    ROUND_ROBIN,
     GCR,
     COPY_SET,
     TIERED_REPLICATION,
-    PGR
+    GEMINI,
+    HYDRA,
+    PGP
   }
 }

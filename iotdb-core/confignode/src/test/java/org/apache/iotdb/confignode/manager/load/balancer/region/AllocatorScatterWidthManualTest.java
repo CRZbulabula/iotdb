@@ -48,7 +48,7 @@ public class AllocatorScatterWidthManualTest {
   private static final Logger LOGGER =
       LoggerFactory.getLogger(AllocatorScatterWidthManualTest.class);
 
-  private static final IRegionGroupAllocator ALLOCATOR = new GreedyRegionGroupAllocator();
+  private static final IRegionGroupAllocator ALLOCATOR = new RoundRobinRegionGroupAllocator();
 
   private static final int TEST_DATA_NODE_NUM = 50;
   private static final int DATA_REGION_PER_DATA_NODE =

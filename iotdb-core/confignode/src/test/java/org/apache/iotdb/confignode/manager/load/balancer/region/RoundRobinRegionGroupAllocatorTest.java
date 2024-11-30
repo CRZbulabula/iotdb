@@ -37,9 +37,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class GreedyRegionGroupAllocatorTest {
+public class RoundRobinRegionGroupAllocatorTest {
 
-  private static final GreedyRegionGroupAllocator ALLOCATOR = new GreedyRegionGroupAllocator();
+  private static final RoundRobinRegionGroupAllocator ALLOCATOR =
+      new RoundRobinRegionGroupAllocator();
   private static final int TEST_REPLICATION_FACTOR = 3;
 
   @Test
