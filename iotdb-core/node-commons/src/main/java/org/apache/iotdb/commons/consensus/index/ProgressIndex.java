@@ -24,6 +24,8 @@ import org.apache.iotdb.commons.consensus.index.impl.MinimumProgressIndex;
 import org.apache.iotdb.commons.consensus.index.impl.StateProgressIndex;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.tsfile.utils.Accountable;
+import org.apache.tsfile.utils.RamUsageEstimator;
 
 import javax.annotation.Nonnull;
 
@@ -31,6 +33,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
@@ -41,8 +45,25 @@ import java.util.stream.LongStream;
  * chain. Since strict total order relations can be defined on each of these causal chains, the
  * progress index is considered to be composed of an n-tuple of total order relations
  * (S<sub>1</sub>,S<sub>2</sub>,S<sub>3</sub>,.... ,S<sub>n</sub>).
+ *
+ * <p>This class is designed to be immutable, meaning that instances of {@link ProgressIndex} can be
+ * treated as value objects. Immutability ensures thread safety, as no external synchronization is
+ * required for concurrent access to instances of this class. It also simplifies reasoning about the
+ * state of the object as it cannot change once created.
+ *
+ * <p>However, if a {@link ProgressIndex} instance holds any mutable objects, like a {@link Map},
+ * they must be deeply copied during construction or when exposed through accessors to maintain the
+ * immutability contract. This prevents unintended modifications to the underlying mutable state
+ * from affecting other parts of the program.
  */
-public abstract class ProgressIndex {
+public abstract class ProgressIndex implements Accountable {
+
+  protected static final long LOCK_SIZE =
+      RamUsageEstimator.shallowSizeOfInstance(ReentrantReadWriteLock.class)
+          + RamUsageEstimator.shallowSizeOfInstance(ReentrantReadWriteLock.ReadLock.class)
+          + RamUsageEstimator.shallowSizeOfInstance(ReentrantReadWriteLock.WriteLock.class)
+          + ((long) RamUsageEstimator.NUM_BYTES_OBJECT_HEADER << 1)
+          + 64;
 
   /** Serialize this progress index to the given byte buffer. */
   public abstract void serialize(ByteBuffer byteBuffer);
@@ -96,22 +117,6 @@ public abstract class ProgressIndex {
   }
 
   /**
-   * Creates and returns a deep copy of this {@link ProgressIndex} instance.
-   *
-   * <p>This method performs a deep copy, meaning all nested objects and fields within this {@link
-   * ProgressIndex} are recursively copied, resulting in a new instance that is independent of the
-   * original. Modifications to the copied instance will not affect the original instance and vice
-   * versa.
-   *
-   * <p>When constructing or updating another {@link ProgressIndex} using an existing {@link
-   * ProgressIndex}, it is recommended to perform a deep copy of the existing instance to avoid
-   * unintended modifications or shared state between the instances.
-   *
-   * @return a new {@link ProgressIndex} instance that is a deep copy of this progress index
-   */
-  public abstract ProgressIndex deepCopy();
-
-  /**
    * Define the isEqualOrAfter relation, A.isEqualOrAfter(B) if and only if each tuple member in A
    * is greater than or equal to B in the corresponding total order relation.
    *
@@ -128,13 +133,11 @@ public abstract class ProgressIndex {
    * A.updateToMinimumIsAfterProgressIndex(B).equals(B.updateToMinimumIsAfterProgressIndex(A)) is
    * {@code true}
    *
-   * <p>Note: this function may modify the caller (this) but will not modify {@param progressIndex}.
+   * <p>Note: this function will not modify the caller (this) and {@param progressIndex}.
    *
    * @param progressIndex the {@link ProgressIndex} to be compared
    * @return the minimum {@link ProgressIndex} after the given {@link ProgressIndex} and this {@link
-   *     ProgressIndex}, the returned {@link ProgressIndex} will contain deep copies of all
-   *     references to the given {@param progressIndex}, ensuring no shared state between the
-   *     original and the result
+   *     ProgressIndex}.
    */
   public abstract ProgressIndex updateToMinimumEqualOrIsAfterProgressIndex(
       ProgressIndex progressIndex);
@@ -183,9 +186,7 @@ public abstract class ProgressIndex {
    *     should be the minimum {@link ProgressIndex} equal or after the first {@link ProgressIndex}
    *     and the second {@link ProgressIndex}
    * @return the minimum {@link ProgressIndex} after the first {@link ProgressIndex} and the second
-   *     {@link ProgressIndex}, the returned {@link ProgressIndex} will contain deep copies of all
-   *     references to {@param progressIndex1} and {@param progressIndex2}, ensuring that the result
-   *     is independent and modifications to it do not affect the original instances
+   *     {@link ProgressIndex}.
    */
   protected static ProgressIndex blendProgressIndex(
       ProgressIndex progressIndex1, ProgressIndex progressIndex2) {
@@ -193,14 +194,14 @@ public abstract class ProgressIndex {
       return MinimumProgressIndex.INSTANCE;
     }
     if (progressIndex1 == null || progressIndex1 instanceof MinimumProgressIndex) {
-      return progressIndex2 == null ? MinimumProgressIndex.INSTANCE : progressIndex2.deepCopy();
+      return progressIndex2 == null ? MinimumProgressIndex.INSTANCE : progressIndex2;
     }
     if (progressIndex2 == null || progressIndex2 instanceof MinimumProgressIndex) {
-      return progressIndex1.deepCopy(); // progressIndex1 is not null
+      return progressIndex1; // progressIndex1 is not null
     }
 
     return progressIndex1 instanceof StateProgressIndex
-        ? progressIndex1.deepCopy().updateToMinimumEqualOrIsAfterProgressIndex(progressIndex2)
+        ? progressIndex1.updateToMinimumEqualOrIsAfterProgressIndex(progressIndex2)
         : new HybridProgressIndex(progressIndex1)
             .updateToMinimumEqualOrIsAfterProgressIndex(progressIndex2);
   }

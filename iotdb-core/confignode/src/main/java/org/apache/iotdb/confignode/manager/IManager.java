@@ -30,8 +30,8 @@ import org.apache.iotdb.common.rpc.thrift.TShowConfigurationResp;
 import org.apache.iotdb.commons.cluster.NodeStatus;
 import org.apache.iotdb.commons.path.PartialPath;
 import org.apache.iotdb.commons.path.PathPatternTree;
-import org.apache.iotdb.confignode.consensus.request.auth.AuthorPlan;
 import org.apache.iotdb.confignode.consensus.request.read.ainode.GetAINodeConfigurationPlan;
+import org.apache.iotdb.confignode.consensus.request.read.auth.AuthorReadPlan;
 import org.apache.iotdb.confignode.consensus.request.read.database.CountDatabasePlan;
 import org.apache.iotdb.confignode.consensus.request.read.database.GetDatabasePlan;
 import org.apache.iotdb.confignode.consensus.request.read.datanode.GetDataNodeConfigurationPlan;
@@ -40,6 +40,7 @@ import org.apache.iotdb.confignode.consensus.request.read.partition.GetOrCreateD
 import org.apache.iotdb.confignode.consensus.request.read.region.GetRegionInfoListPlan;
 import org.apache.iotdb.confignode.consensus.request.read.ttl.ShowTTLPlan;
 import org.apache.iotdb.confignode.consensus.request.write.ainode.RemoveAINodePlan;
+import org.apache.iotdb.confignode.consensus.request.write.auth.AuthorPlan;
 import org.apache.iotdb.confignode.consensus.request.write.confignode.RemoveConfigNodePlan;
 import org.apache.iotdb.confignode.consensus.request.write.database.DatabaseSchemaPlan;
 import org.apache.iotdb.confignode.consensus.request.write.database.SetDataReplicationFactorPlan;
@@ -59,9 +60,9 @@ import org.apache.iotdb.confignode.rpc.thrift.TAINodeRegisterReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAINodeRestartReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAINodeRestartResp;
 import org.apache.iotdb.confignode.rpc.thrift.TAlterLogicalViewReq;
+import org.apache.iotdb.confignode.rpc.thrift.TAlterOrDropTableReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAlterPipeReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAlterSchemaTemplateReq;
-import org.apache.iotdb.confignode.rpc.thrift.TAlterTableReq;
 import org.apache.iotdb.confignode.rpc.thrift.TCloseConsumerReq;
 import org.apache.iotdb.confignode.rpc.thrift.TConfigNodeRegisterReq;
 import org.apache.iotdb.confignode.rpc.thrift.TConfigNodeRegisterResp;
@@ -83,13 +84,18 @@ import org.apache.iotdb.confignode.rpc.thrift.TDataPartitionTableResp;
 import org.apache.iotdb.confignode.rpc.thrift.TDeactivateSchemaTemplateReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDeleteDatabasesReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDeleteLogicalViewReq;
+import org.apache.iotdb.confignode.rpc.thrift.TDeleteTableDeviceReq;
+import org.apache.iotdb.confignode.rpc.thrift.TDeleteTableDeviceResp;
 import org.apache.iotdb.confignode.rpc.thrift.TDeleteTimeSeriesReq;
+import org.apache.iotdb.confignode.rpc.thrift.TDescTableResp;
 import org.apache.iotdb.confignode.rpc.thrift.TDropCQReq;
+import org.apache.iotdb.confignode.rpc.thrift.TDropFunctionReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropModelReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropPipePluginReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropPipeReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropTopicReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropTriggerReq;
+import org.apache.iotdb.confignode.rpc.thrift.TFetchTableResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetAllPipeInfoResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetAllSubscriptionInfoResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetAllTemplatesResp;
@@ -113,6 +119,7 @@ import org.apache.iotdb.confignode.rpc.thrift.TGetTimeSlotListReq;
 import org.apache.iotdb.confignode.rpc.thrift.TGetTimeSlotListResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetTriggerTableResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetUDFTableResp;
+import org.apache.iotdb.confignode.rpc.thrift.TGetUdfTableReq;
 import org.apache.iotdb.confignode.rpc.thrift.TMigrateRegionReq;
 import org.apache.iotdb.confignode.rpc.thrift.TPermissionInfoResp;
 import org.apache.iotdb.confignode.rpc.thrift.TPipeConfigTransferReq;
@@ -147,6 +154,7 @@ import org.apache.iotdb.rpc.TSStatusCode;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A subset of services provided by {@link ConfigManager}. For use internally only, passed to
@@ -413,7 +421,8 @@ public interface IManager {
    *
    * @return TSchemaPartitionResp
    */
-  TSchemaPartitionTableResp getSchemaPartition(PathPatternTree patternTree);
+  TSchemaPartitionTableResp getSchemaPartition(
+      final PathPatternTree patternTree, final boolean isTableModel);
 
   /**
    * Get SchemaPartition with <databaseName, seriesSlot>.
@@ -427,7 +436,8 @@ public interface IManager {
    *
    * @return TSchemaPartitionResp
    */
-  TSchemaPartitionTableResp getOrCreateSchemaPartition(PathPatternTree patternTree);
+  TSchemaPartitionTableResp getOrCreateSchemaPartition(
+      final PathPatternTree patternTree, final boolean isTableModel);
 
   /**
    * Get or create SchemaPartition with <databaseName, seriesSlot>.
@@ -465,14 +475,14 @@ public interface IManager {
    *
    * @return status
    */
-  TSStatus operatePermission(AuthorPlan authorPlan);
+  TSStatus operatePermission(final AuthorPlan authorPlan);
 
   /**
    * Query Permission.
    *
    * @return PermissionInfoDataSet
    */
-  DataSet queryPermission(AuthorPlan authorPlan);
+  DataSet queryPermission(final AuthorReadPlan authorPlan);
 
   /** login. */
   TPermissionInfoResp login(String username, String password);
@@ -511,9 +521,9 @@ public interface IManager {
 
   TSStatus createFunction(TCreateFunctionReq req);
 
-  TSStatus dropFunction(String udfName);
+  TSStatus dropFunction(TDropFunctionReq req);
 
-  TGetUDFTableResp getUDFTable();
+  TGetUDFTableResp getUDFTable(TGetUdfTableReq req);
 
   TGetJarInListResp getUDFJar(TGetJarInListReq req);
 
@@ -554,7 +564,7 @@ public interface IManager {
   TSStatus flush(TFlushReq req);
 
   /** Clear cache on all DataNodes. */
-  TSStatus clearCache();
+  TSStatus clearCache(final Set<Integer> clearCacheOptions);
 
   /** Set Configuration. */
   TSStatus setConfiguration(TSetConfigurationReq req);
@@ -829,7 +839,14 @@ public interface IManager {
 
   TSStatus createTable(final ByteBuffer tableInfo);
 
-  TSStatus alterTable(final TAlterTableReq req);
+  TSStatus alterOrDropTable(final TAlterOrDropTableReq req);
 
-  TShowTableResp showTables(final String database);
+  TDeleteTableDeviceResp deleteDevice(final TDeleteTableDeviceReq req);
+
+  TShowTableResp showTables(final String database, final boolean isDetails);
+
+  TDescTableResp describeTable(
+      final String database, final String tableName, final boolean isDetails);
+
+  TFetchTableResp fetchTables(final Map<String, Set<String>> fetchTableMap);
 }

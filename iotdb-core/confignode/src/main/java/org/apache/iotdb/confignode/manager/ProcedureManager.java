@@ -32,7 +32,7 @@ import org.apache.iotdb.commons.exception.IoTDBException;
 import org.apache.iotdb.commons.path.PartialPath;
 import org.apache.iotdb.commons.path.PathDeserializeUtil;
 import org.apache.iotdb.commons.path.PathPatternTree;
-import org.apache.iotdb.commons.pipe.plugin.meta.PipePluginMeta;
+import org.apache.iotdb.commons.pipe.agent.plugin.meta.PipePluginMeta;
 import org.apache.iotdb.commons.schema.table.TsTable;
 import org.apache.iotdb.commons.schema.table.column.TsTableColumnSchemaUtil;
 import org.apache.iotdb.commons.schema.view.viewExpression.ViewExpression;
@@ -42,8 +42,8 @@ import org.apache.iotdb.commons.utils.StatusUtils;
 import org.apache.iotdb.commons.utils.TestOnly;
 import org.apache.iotdb.confignode.conf.ConfigNodeConfig;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
-import org.apache.iotdb.confignode.consensus.request.auth.AuthorPlan;
 import org.apache.iotdb.confignode.consensus.request.write.ainode.RemoveAINodePlan;
+import org.apache.iotdb.confignode.consensus.request.write.auth.AuthorPlan;
 import org.apache.iotdb.confignode.consensus.request.write.confignode.RemoveConfigNodePlan;
 import org.apache.iotdb.confignode.consensus.request.write.database.SetTTLPlan;
 import org.apache.iotdb.confignode.consensus.request.write.datanode.RemoveDataNodePlan;
@@ -56,13 +56,14 @@ import org.apache.iotdb.confignode.procedure.ProcedureExecutor;
 import org.apache.iotdb.confignode.procedure.ProcedureMetrics;
 import org.apache.iotdb.confignode.procedure.env.ConfigNodeProcedureEnv;
 import org.apache.iotdb.confignode.procedure.env.RegionMaintainHandler;
+import org.apache.iotdb.confignode.procedure.env.RemoveDataNodeHandler;
 import org.apache.iotdb.confignode.procedure.impl.cq.CreateCQProcedure;
 import org.apache.iotdb.confignode.procedure.impl.model.CreateModelProcedure;
 import org.apache.iotdb.confignode.procedure.impl.model.DropModelProcedure;
 import org.apache.iotdb.confignode.procedure.impl.node.AddConfigNodeProcedure;
 import org.apache.iotdb.confignode.procedure.impl.node.RemoveAINodeProcedure;
 import org.apache.iotdb.confignode.procedure.impl.node.RemoveConfigNodeProcedure;
-import org.apache.iotdb.confignode.procedure.impl.node.RemoveDataNodeProcedure;
+import org.apache.iotdb.confignode.procedure.impl.node.RemoveDataNodesProcedure;
 import org.apache.iotdb.confignode.procedure.impl.pipe.plugin.CreatePipePluginProcedure;
 import org.apache.iotdb.confignode.procedure.impl.pipe.plugin.DropPipePluginProcedure;
 import org.apache.iotdb.confignode.procedure.impl.pipe.runtime.PipeHandleLeaderChangeProcedure;
@@ -75,6 +76,7 @@ import org.apache.iotdb.confignode.procedure.impl.pipe.task.StartPipeProcedureV2
 import org.apache.iotdb.confignode.procedure.impl.pipe.task.StopPipeProcedureV2;
 import org.apache.iotdb.confignode.procedure.impl.region.CreateRegionGroupsProcedure;
 import org.apache.iotdb.confignode.procedure.impl.region.RegionMigrateProcedure;
+import org.apache.iotdb.confignode.procedure.impl.region.RegionMigrationPlan;
 import org.apache.iotdb.confignode.procedure.impl.schema.AlterLogicalViewProcedure;
 import org.apache.iotdb.confignode.procedure.impl.schema.DeactivateTemplateProcedure;
 import org.apache.iotdb.confignode.procedure.impl.schema.DeleteDatabaseProcedure;
@@ -83,8 +85,13 @@ import org.apache.iotdb.confignode.procedure.impl.schema.DeleteTimeSeriesProcedu
 import org.apache.iotdb.confignode.procedure.impl.schema.SetTTLProcedure;
 import org.apache.iotdb.confignode.procedure.impl.schema.SetTemplateProcedure;
 import org.apache.iotdb.confignode.procedure.impl.schema.UnsetTemplateProcedure;
+import org.apache.iotdb.confignode.procedure.impl.schema.table.AbstractAlterOrDropTableProcedure;
 import org.apache.iotdb.confignode.procedure.impl.schema.table.AddTableColumnProcedure;
 import org.apache.iotdb.confignode.procedure.impl.schema.table.CreateTableProcedure;
+import org.apache.iotdb.confignode.procedure.impl.schema.table.DeleteDevicesProcedure;
+import org.apache.iotdb.confignode.procedure.impl.schema.table.DropTableColumnProcedure;
+import org.apache.iotdb.confignode.procedure.impl.schema.table.DropTableProcedure;
+import org.apache.iotdb.confignode.procedure.impl.schema.table.RenameTableColumnProcedure;
 import org.apache.iotdb.confignode.procedure.impl.schema.table.SetTablePropertiesProcedure;
 import org.apache.iotdb.confignode.procedure.impl.subscription.consumer.CreateConsumerProcedure;
 import org.apache.iotdb.confignode.procedure.impl.subscription.consumer.DropConsumerProcedure;
@@ -106,8 +113,8 @@ import org.apache.iotdb.confignode.procedure.store.IProcedureStore;
 import org.apache.iotdb.confignode.procedure.store.ProcedureFactory;
 import org.apache.iotdb.confignode.procedure.store.ProcedureType;
 import org.apache.iotdb.confignode.rpc.thrift.TAlterLogicalViewReq;
+import org.apache.iotdb.confignode.rpc.thrift.TAlterOrDropTableReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAlterPipeReq;
-import org.apache.iotdb.confignode.rpc.thrift.TAlterTableReq;
 import org.apache.iotdb.confignode.rpc.thrift.TCloseConsumerReq;
 import org.apache.iotdb.confignode.rpc.thrift.TConfigNodeRegisterReq;
 import org.apache.iotdb.confignode.rpc.thrift.TCreateCQReq;
@@ -116,6 +123,8 @@ import org.apache.iotdb.confignode.rpc.thrift.TCreatePipeReq;
 import org.apache.iotdb.confignode.rpc.thrift.TCreateTopicReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDatabaseSchema;
 import org.apache.iotdb.confignode.rpc.thrift.TDeleteLogicalViewReq;
+import org.apache.iotdb.confignode.rpc.thrift.TDeleteTableDeviceReq;
+import org.apache.iotdb.confignode.rpc.thrift.TDeleteTableDeviceResp;
 import org.apache.iotdb.confignode.rpc.thrift.TDropPipePluginReq;
 import org.apache.iotdb.confignode.rpc.thrift.TMigrateRegionReq;
 import org.apache.iotdb.confignode.rpc.thrift.TSubscribeReq;
@@ -132,6 +141,8 @@ import org.apache.tsfile.utils.ReadWriteIOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nonnull;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -142,6 +153,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
@@ -231,8 +243,8 @@ public class ProcedureManager {
         while (executor.isRunning()
             && System.currentTimeMillis() - startCheckTimeForProcedures < PROCEDURE_WAIT_TIME_OUT) {
           final Pair<Long, Boolean> procedureIdDuplicatePair =
-              awaitDuplicateTableTask(
-                  database, null, null, null, ProcedureType.CREATE_TABLE_PROCEDURE);
+              checkDuplicateTableTask(
+                  database, null, null, null, ProcedureType.DELETE_DATABASE_PROCEDURE);
           hasOverlappedTask = procedureIdDuplicatePair.getRight();
 
           if (Boolean.FALSE.equals(procedureIdDuplicatePair.getRight())) {
@@ -577,17 +589,23 @@ public class ProcedureManager {
   }
 
   /**
-   * Generate {@link RemoveDataNodeProcedure}s, and serially execute all the {@link
-   * RemoveDataNodeProcedure}s.
+   * Generate {@link RemoveDataNodesProcedure}s, and serially execute all the {@link
+   * RemoveDataNodesProcedure}s.
    */
   public boolean removeDataNode(RemoveDataNodePlan removeDataNodePlan) {
+    Map<Integer, NodeStatus> nodeStatusMap = new HashMap<>();
     removeDataNodePlan
         .getDataNodeLocations()
         .forEach(
-            tDataNodeLocation -> {
-              this.executor.submitProcedure(new RemoveDataNodeProcedure(tDataNodeLocation));
-              LOGGER.info("Submit RemoveDataNodeProcedure successfully, {}", tDataNodeLocation);
-            });
+            datanode ->
+                nodeStatusMap.put(
+                    datanode.getDataNodeId(),
+                    configManager.getLoadManager().getNodeStatus(datanode.getDataNodeId())));
+    this.executor.submitProcedure(
+        new RemoveDataNodesProcedure(removeDataNodePlan.getDataNodeLocations(), nodeStatusMap));
+    LOGGER.info(
+        "Submit RemoveDataNodeProcedure successfully, {}",
+        removeDataNodePlan.getDataNodeLocations());
     return true;
   }
 
@@ -598,7 +616,125 @@ public class ProcedureManager {
     return true;
   }
 
-  // region region migration
+  public TSStatus checkRemoveDataNodes(List<TDataNodeLocation> dataNodeLocations) {
+    // 1. Only one RemoveDataNodesProcedure is allowed in the cluster
+    Optional<Procedure<ConfigNodeProcedureEnv>> anotherRemoveProcedure =
+        getExecutor().getProcedures().values().stream()
+            .filter(
+                procedure -> {
+                  if (procedure instanceof RemoveDataNodesProcedure) {
+                    return !procedure.isFinished();
+                  }
+                  return false;
+                })
+            .findAny();
+
+    String failMessage = null;
+    if (anotherRemoveProcedure.isPresent()) {
+      List<TDataNodeLocation> anotherRemoveDataNodes =
+          ((RemoveDataNodesProcedure) anotherRemoveProcedure.get()).getRemovedDataNodes();
+      failMessage =
+          String.format(
+              "Submit RemoveDataNodesProcedure failed, "
+                  + "because another RemoveDataNodesProcedure %s is already in processing. "
+                  + "IoTDB is able to have at most 1 RemoveDataNodesProcedure at the same time. "
+                  + "For further information, please search [pid%d] in log. ",
+              anotherRemoveDataNodes, anotherRemoveProcedure.get().getProcId());
+    }
+
+    // 2. Check if the RemoveDataNodesProcedure conflicts with the RegionMigrateProcedure
+    Set<TConsensusGroupId> removedDataNodesRegionSet =
+        getEnv().getRemoveDataNodeHandler().getRemovedDataNodesRegionSet(dataNodeLocations);
+    Optional<Procedure<ConfigNodeProcedureEnv>> conflictRegionMigrateProcedure =
+        getExecutor().getProcedures().values().stream()
+            .filter(
+                procedure -> {
+                  if (procedure instanceof RegionMigrateProcedure) {
+                    RegionMigrateProcedure regionMigrateProcedure =
+                        (RegionMigrateProcedure) procedure;
+                    if (regionMigrateProcedure.isFinished()) {
+                      return false;
+                    }
+                    return removedDataNodesRegionSet.contains(
+                            regionMigrateProcedure.getConsensusGroupId())
+                        || dataNodeLocations.contains(regionMigrateProcedure.getDestDataNode());
+                  }
+                  return false;
+                })
+            .findAny();
+    if (conflictRegionMigrateProcedure.isPresent()) {
+      failMessage =
+          String.format(
+              "Submit RemoveDataNodesProcedure failed, "
+                  + "because another RegionMigrateProcedure %s is already in processing which conflicts with this RemoveDataNodesProcedure. "
+                  + "The RegionMigrateProcedure is migrating the region %s to the DataNode %s. "
+                  + "For further information, please search [pid%d] in log. ",
+              conflictRegionMigrateProcedure.get().getProcId(),
+              ((RegionMigrateProcedure) conflictRegionMigrateProcedure.get()).getConsensusGroupId(),
+              ((RegionMigrateProcedure) conflictRegionMigrateProcedure.get()).getDestDataNode(),
+              conflictRegionMigrateProcedure.get().getProcId());
+    }
+    // 3. Check if the RegionMigrateProcedure generated by RemoveDataNodesProcedure conflicts with
+    // each other
+    List<RegionMigrationPlan> regionMigrationPlans =
+        getEnv().getRemoveDataNodeHandler().getRegionMigrationPlans(dataNodeLocations);
+    removedDataNodesRegionSet.clear();
+    for (RegionMigrationPlan regionMigrationPlan : regionMigrationPlans) {
+      if (removedDataNodesRegionSet.contains(regionMigrationPlan.getRegionId())) {
+        failMessage =
+            String.format(
+                "Submit RemoveDataNodesProcedure failed, "
+                    + "because the RegionMigrateProcedure generated by this RemoveDataNodesProcedure conflicts with each other. "
+                    + "Only one replica of the same consensus group is allowed to be migrated at the same time."
+                    + "The conflict region id is %s . ",
+                regionMigrationPlan.getRegionId());
+        break;
+      }
+      removedDataNodesRegionSet.add(regionMigrationPlan.getRegionId());
+    }
+
+    // 4. Check if there are any other unknown or readonly DataNodes in the consensus group that are
+    // not the remove DataNodes
+
+    for (TDataNodeLocation removeDataNode : dataNodeLocations) {
+      Set<TDataNodeLocation> relatedDataNodes =
+          getEnv().getRemoveDataNodeHandler().getRelatedDataNodeLocations(removeDataNode);
+      relatedDataNodes.remove(removeDataNode);
+
+      for (TDataNodeLocation relatedDataNode : relatedDataNodes) {
+        NodeStatus nodeStatus =
+            getConfigManager().getLoadManager().getNodeStatus(relatedDataNode.getDataNodeId());
+        if (nodeStatus == NodeStatus.Unknown || nodeStatus == NodeStatus.ReadOnly) {
+          failMessage =
+              String.format(
+                  "Submit RemoveDataNodesProcedure failed, "
+                      + "because when there are other unknown or readonly nodes in the consensus group that are not remove nodes, "
+                      + "the remove operation cannot be performed for security reasons. "
+                      + "Please check the status of the node %s and ensure it is running.",
+                  relatedDataNode.getDataNodeId());
+        }
+      }
+    }
+
+    if (failMessage != null) {
+      LOGGER.warn(failMessage);
+      TSStatus failStatus = new TSStatus(TSStatusCode.REMOVE_DATANODE_ERROR.getStatusCode());
+      failStatus.setMessage(failMessage);
+      return failStatus;
+    }
+    return new TSStatus(TSStatusCode.SUCCESS_STATUS.getStatusCode());
+  }
+
+  /**
+   * Checks whether region migration is allowed.
+   *
+   * @param migrateRegionReq the migration request details
+   * @param regionGroupId the ID of the consensus group for the region
+   * @param originalDataNode the original DataNode location from which the region is being migrated
+   * @param destDataNode the destination DataNode location to which the region is being migrated
+   * @param coordinatorForAddPeer the DataNode location acting as the coordinator for adding a peer
+   * @return the status of the migration request (TSStatus)
+   */
   private TSStatus checkRegionMigrate(
       TMigrateRegionReq migrateRegionReq,
       TConsensusGroupId regionGroupId,
@@ -606,8 +742,9 @@ public class ProcedureManager {
       TDataNodeLocation destDataNode,
       TDataNodeLocation coordinatorForAddPeer) {
     String failMessage = null;
+    // 1. Check if the RegionMigrateProcedure has conflict with another RegionMigrateProcedure
     Optional<Procedure<ConfigNodeProcedureEnv>> anotherMigrateProcedure =
-        this.executor.getProcedures().values().stream()
+        getExecutor().getProcedures().values().stream()
             .filter(
                 procedure -> {
                   if (procedure instanceof RegionMigrateProcedure) {
@@ -685,6 +822,49 @@ public class ProcedureManager {
               "Submit RegionMigrateProcedure failed, because the destDataNode %s is ReadOnly or Unknown.",
               migrateRegionReq.getToId());
     }
+
+    // 2. Check if the RegionMigrateProcedure has conflict with RemoveDataNodesProcedure
+    Optional<Procedure<ConfigNodeProcedureEnv>> conflictRemoveDataNodesProcedure =
+        getExecutor().getProcedures().values().stream()
+            .filter(
+                procedure -> {
+                  if (procedure instanceof RemoveDataNodesProcedure) {
+                    return !procedure.isFinished();
+                  }
+                  return false;
+                })
+            .findAny();
+
+    if (conflictRemoveDataNodesProcedure.isPresent()) {
+      RemoveDataNodeHandler removeDataNodeHandler = env.getRemoveDataNodeHandler();
+      List<TDataNodeLocation> removedDataNodes =
+          ((RemoveDataNodesProcedure) conflictRemoveDataNodesProcedure.get()).getRemovedDataNodes();
+      Set<TConsensusGroupId> removedDataNodesRegionSet =
+          removeDataNodeHandler.getRemovedDataNodesRegionSet(removedDataNodes);
+      if (removedDataNodesRegionSet.contains(regionGroupId)) {
+        failMessage =
+            String.format(
+                "Submit RegionMigrateProcedure failed, "
+                    + "because another RemoveDataNodesProcedure %s is already in processing which conflicts with this RegionMigrateProcedure. "
+                    + "The RemoveDataNodesProcedure is removing the DataNodes %s which contains the region %s. "
+                    + "For further information, please search [pid%d] in log. ",
+                conflictRemoveDataNodesProcedure.get().getProcId(),
+                removedDataNodes,
+                regionGroupId,
+                conflictRemoveDataNodesProcedure.get().getProcId());
+      } else if (removedDataNodes.contains(destDataNode)) {
+        failMessage =
+            String.format(
+                "Submit RegionMigrateProcedure failed, "
+                    + "because another RemoveDataNodesProcedure %s is already in processing which conflicts with this RegionMigrateProcedure. "
+                    + "The RemoveDataNodesProcedure is removing the target DataNode %s. "
+                    + "For further information, please search [pid%d] in log. ",
+                conflictRemoveDataNodesProcedure.get().getProcId(),
+                destDataNode,
+                conflictRemoveDataNodesProcedure.get().getProcId());
+      }
+    }
+
     if (failMessage != null) {
       LOGGER.warn(failMessage);
       TSStatus failStatus = new TSStatus(TSStatusCode.MIGRATE_REGION_ERROR.getStatusCode());
@@ -694,70 +874,80 @@ public class ProcedureManager {
     return new TSStatus(TSStatusCode.SUCCESS_STATUS.getStatusCode());
   }
 
-  public synchronized TSStatus migrateRegion(TMigrateRegionReq migrateRegionReq) {
-    TConsensusGroupId regionGroupId;
-    Optional<TConsensusGroupId> optional =
-        configManager
-            .getPartitionManager()
-            .generateTConsensusGroupIdByRegionId(migrateRegionReq.getRegionId());
-    if (optional.isPresent()) {
-      regionGroupId = optional.get();
-    } else {
-      LOGGER.error("get region group id fail");
-      return new TSStatus(TSStatusCode.MIGRATE_REGION_ERROR.getStatusCode())
-          .setMessage("get region group id fail");
+  public TSStatus migrateRegion(TMigrateRegionReq migrateRegionReq) {
+    env.getSubmitRegionMigrateLock().lock();
+    try {
+      TConsensusGroupId regionGroupId;
+      Optional<TConsensusGroupId> optional =
+          configManager
+              .getPartitionManager()
+              .generateTConsensusGroupIdByRegionId(migrateRegionReq.getRegionId());
+      if (optional.isPresent()) {
+        regionGroupId = optional.get();
+      } else {
+        LOGGER.error("get region group id fail");
+        return new TSStatus(TSStatusCode.MIGRATE_REGION_ERROR.getStatusCode())
+            .setMessage("get region group id fail");
+      }
+
+      // find original dn and dest dn
+      final TDataNodeLocation originalDataNode =
+          configManager
+              .getNodeManager()
+              .getRegisteredDataNode(migrateRegionReq.getFromId())
+              .getLocation();
+      final TDataNodeLocation destDataNode =
+          configManager
+              .getNodeManager()
+              .getRegisteredDataNode(migrateRegionReq.getToId())
+              .getLocation();
+      // select coordinator for adding peer
+      RegionMaintainHandler handler = env.getRegionMaintainHandler();
+      // TODO: choose the DataNode which has lowest load
+      final TDataNodeLocation coordinatorForAddPeer =
+          handler
+              .filterDataNodeWithOtherRegionReplica(
+                  regionGroupId,
+                  destDataNode,
+                  NodeStatus.Running,
+                  NodeStatus.Removing,
+                  NodeStatus.ReadOnly)
+              .orElse(null);
+      // Select coordinator for removing peer
+      // For now, destDataNode temporarily acts as the coordinatorForRemovePeer
+      final TDataNodeLocation coordinatorForRemovePeer = destDataNode;
+
+      TSStatus status =
+          checkRegionMigrate(
+              migrateRegionReq,
+              regionGroupId,
+              originalDataNode,
+              destDataNode,
+              coordinatorForAddPeer);
+      if (status.getCode() != TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
+        return status;
+      }
+
+      // finally, submit procedure
+      this.executor.submitProcedure(
+          new RegionMigrateProcedure(
+              regionGroupId,
+              originalDataNode,
+              destDataNode,
+              coordinatorForAddPeer,
+              coordinatorForRemovePeer));
+      LOGGER.info(
+          "Submit RegionMigrateProcedure successfully, Region: {}, Origin DataNode: {}, Dest DataNode: {}, Add Coordinator: {}, Remove Coordinator: {}",
+          regionGroupId,
+          originalDataNode,
+          destDataNode,
+          coordinatorForAddPeer,
+          coordinatorForRemovePeer);
+
+      return new TSStatus(TSStatusCode.SUCCESS_STATUS.getStatusCode());
+    } finally {
+      env.getSubmitRegionMigrateLock().unlock();
     }
-
-    // find original dn and dest dn
-    final TDataNodeLocation originalDataNode =
-        configManager
-            .getNodeManager()
-            .getRegisteredDataNode(migrateRegionReq.getFromId())
-            .getLocation();
-    final TDataNodeLocation destDataNode =
-        configManager
-            .getNodeManager()
-            .getRegisteredDataNode(migrateRegionReq.getToId())
-            .getLocation();
-    // select coordinator for adding peer
-    RegionMaintainHandler handler = new RegionMaintainHandler(configManager);
-    // TODO: choose the DataNode which has lowest load
-    final TDataNodeLocation coordinatorForAddPeer =
-        handler
-            .filterDataNodeWithOtherRegionReplica(
-                regionGroupId,
-                destDataNode,
-                NodeStatus.Running,
-                NodeStatus.Removing,
-                NodeStatus.ReadOnly)
-            .orElse(null);
-    // Select coordinator for removing peer
-    // For now, destDataNode temporarily acts as the coordinatorForRemovePeer
-    final TDataNodeLocation coordinatorForRemovePeer = destDataNode;
-
-    TSStatus status =
-        checkRegionMigrate(
-            migrateRegionReq, regionGroupId, originalDataNode, destDataNode, coordinatorForAddPeer);
-    if (status.getCode() != TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
-      return status;
-    }
-
-    // finally, submit procedure
-    this.executor.submitProcedure(
-        new RegionMigrateProcedure(
-            regionGroupId,
-            originalDataNode,
-            destDataNode,
-            coordinatorForAddPeer,
-            coordinatorForRemovePeer));
-    LOGGER.info(
-        "Submit RegionMigrateProcedure successfully, Region: {}, Origin DataNode: {}, Dest DataNode: {}, Add Coordinator: {}, Remove Coordinator: {}",
-        regionGroupId,
-        originalDataNode,
-        destDataNode,
-        coordinatorForAddPeer,
-        coordinatorForRemovePeer);
-    return new TSStatus(TSStatusCode.SUCCESS_STATUS.getStatusCode());
   }
 
   // endregion
@@ -914,6 +1104,15 @@ public class ProcedureManager {
     }
   }
 
+  public TSStatus createConsensusPipe(TCreatePipeReq req) {
+    try {
+      final long procedureId = executor.submitProcedure(new CreatePipeProcedureV2(req));
+      return handleConsensusPipeProcedure(procedureId);
+    } catch (Exception e) {
+      return new TSStatus(TSStatusCode.PIPE_ERROR.getStatusCode()).setMessage(e.getMessage());
+    }
+  }
+
   public TSStatus createPipe(TCreatePipeReq req) {
     try {
       final long procedureId = executor.submitProcedure(new CreatePipeProcedureV2(req));
@@ -948,6 +1147,15 @@ public class ProcedureManager {
     }
   }
 
+  public TSStatus startConsensusPipe(String pipeName) {
+    try {
+      final long procedureId = executor.submitProcedure(new StartPipeProcedureV2(pipeName));
+      return handleConsensusPipeProcedure(procedureId);
+    } catch (Exception e) {
+      return new TSStatus(TSStatusCode.PIPE_ERROR.getStatusCode()).setMessage(e.getMessage());
+    }
+  }
+
   public TSStatus startPipe(String pipeName) {
     try {
       final long procedureId = executor.submitProcedure(new StartPipeProcedureV2(pipeName));
@@ -960,6 +1168,15 @@ public class ProcedureManager {
         return new TSStatus(TSStatusCode.PIPE_ERROR.getStatusCode())
             .setMessage(wrapTimeoutMessageForPipeProcedure(statusList.get(0).getMessage()));
       }
+    } catch (Exception e) {
+      return new TSStatus(TSStatusCode.PIPE_ERROR.getStatusCode()).setMessage(e.getMessage());
+    }
+  }
+
+  public TSStatus stopConsensusPipe(String pipeName) {
+    try {
+      final long procedureId = executor.submitProcedure(new StopPipeProcedureV2(pipeName));
+      return handleConsensusPipeProcedure(procedureId);
     } catch (Exception e) {
       return new TSStatus(TSStatusCode.PIPE_ERROR.getStatusCode()).setMessage(e.getMessage());
     }
@@ -982,6 +1199,15 @@ public class ProcedureManager {
     }
   }
 
+  public TSStatus dropConsensusPipe(String pipeName) {
+    try {
+      final long procedureId = executor.submitProcedure(new DropPipeProcedureV2(pipeName));
+      return handleConsensusPipeProcedure(procedureId);
+    } catch (Exception e) {
+      return new TSStatus(TSStatusCode.PIPE_ERROR.getStatusCode()).setMessage(e.getMessage());
+    }
+  }
+
   public TSStatus dropPipe(String pipeName) {
     try {
       final long procedureId = executor.submitProcedure(new DropPipeProcedureV2(pipeName));
@@ -996,6 +1222,23 @@ public class ProcedureManager {
       }
     } catch (Exception e) {
       return new TSStatus(TSStatusCode.PIPE_ERROR.getStatusCode()).setMessage(e.getMessage());
+    }
+  }
+
+  private TSStatus handleConsensusPipeProcedure(final long procedureId) {
+    final List<TSStatus> statusList = new ArrayList<>();
+    final boolean isSucceed =
+        waitingProcedureFinished(Collections.singletonList(procedureId), statusList);
+    if (isSucceed) {
+      return statusList.get(0);
+    } else {
+      // if time out, optimistically believe that this procedure will execute successfully.
+      if (statusList.get(0).getMessage().equals(PROCEDURE_TIMEOUT_MESSAGE)) {
+        return new TSStatus(TSStatusCode.SUCCESS_STATUS.getStatusCode());
+      }
+      // otherwise, some exceptions must have occurred, throw them.
+      return new TSStatus(TSStatusCode.PIPE_ERROR.getStatusCode())
+          .setMessage(wrapTimeoutMessageForPipeProcedure(statusList.get(0).getMessage()));
     }
   }
 
@@ -1177,9 +1420,13 @@ public class ProcedureManager {
           waitingProcedureFinished(Collections.singletonList(procedureId), statusList);
       if (isSucceed) {
         return statusList.get(0);
-      } else {
-        return new TSStatus(TSStatusCode.SUBSCRIPTION_SUBSCRIBE_ERROR.getStatusCode())
+      } else if (PROCEDURE_TIMEOUT_MESSAGE.equals(statusList.get(0).getMessage())) {
+        // we assume that a timeout has occurred in the procedure related to the pipe in the
+        // subscription procedure
+        return new TSStatus(TSStatusCode.SUBSCRIPTION_PIPE_TIMEOUT_ERROR.getStatusCode())
             .setMessage(wrapTimeoutMessageForPipeProcedure(statusList.get(0).getMessage()));
+      } else {
+        return new TSStatus(TSStatusCode.SUBSCRIPTION_SUBSCRIBE_ERROR.getStatusCode());
       }
     } catch (Exception e) {
       return new TSStatus(TSStatusCode.SUBSCRIPTION_SUBSCRIBE_ERROR.getStatusCode())
@@ -1195,9 +1442,13 @@ public class ProcedureManager {
           waitingProcedureFinished(Collections.singletonList(procedureId), statusList);
       if (isSucceed) {
         return statusList.get(0);
-      } else {
-        return new TSStatus(TSStatusCode.SUBSCRIPTION_UNSUBSCRIBE_ERROR.getStatusCode())
+      } else if (PROCEDURE_TIMEOUT_MESSAGE.equals(statusList.get(0).getMessage())) {
+        // we assume that a timeout has occurred in the procedure related to the pipe in the
+        // subscription procedure
+        return new TSStatus(TSStatusCode.SUBSCRIPTION_PIPE_TIMEOUT_ERROR.getStatusCode())
             .setMessage(wrapTimeoutMessageForPipeProcedure(statusList.get(0).getMessage()));
+      } else {
+        return new TSStatus(TSStatusCode.SUBSCRIPTION_UNSUBSCRIBE_ERROR.getStatusCode());
       }
     } catch (Exception e) {
       return new TSStatus(TSStatusCode.SUBSCRIPTION_UNSUBSCRIBE_ERROR.getStatusCode())
@@ -1327,7 +1578,7 @@ public class ProcedureManager {
         new CreateTableProcedure(database, table));
   }
 
-  public TSStatus alterTableAddColumn(final TAlterTableReq req) {
+  public TSStatus alterTableAddColumn(final TAlterOrDropTableReq req) {
     return executeWithoutDuplicate(
         req.database,
         null,
@@ -1341,7 +1592,7 @@ public class ProcedureManager {
             TsTableColumnSchemaUtil.deserializeColumnSchemaList(req.updateInfo)));
   }
 
-  public TSStatus alterTableSetProperties(final TAlterTableReq req) {
+  public TSStatus alterTableSetProperties(final TAlterOrDropTableReq req) {
     return executeWithoutDuplicate(
         req.database,
         null,
@@ -1350,6 +1601,86 @@ public class ProcedureManager {
         ProcedureType.SET_TABLE_PROPERTIES_PROCEDURE,
         new SetTablePropertiesProcedure(
             req.database, req.tableName, req.queryId, ReadWriteIOUtils.readMap(req.updateInfo)));
+  }
+
+  public TSStatus alterTableRenameColumn(final TAlterOrDropTableReq req) {
+    return executeWithoutDuplicate(
+        req.database,
+        null,
+        req.tableName,
+        req.queryId,
+        ProcedureType.RENAME_TABLE_COLUMN_PROCEDURE,
+        new RenameTableColumnProcedure(
+            req.database,
+            req.tableName,
+            req.queryId,
+            ReadWriteIOUtils.readString(req.updateInfo),
+            ReadWriteIOUtils.readString(req.updateInfo)));
+  }
+
+  public TSStatus alterTableDropColumn(final TAlterOrDropTableReq req) {
+    return executeWithoutDuplicate(
+        req.database,
+        null,
+        req.tableName,
+        req.queryId,
+        ProcedureType.DROP_TABLE_COLUMN_PROCEDURE,
+        new DropTableColumnProcedure(
+            req.database, req.tableName, req.queryId, ReadWriteIOUtils.readString(req.updateInfo)));
+  }
+
+  public TSStatus dropTable(final TAlterOrDropTableReq req) {
+    return executeWithoutDuplicate(
+        req.database,
+        null,
+        req.tableName,
+        req.queryId,
+        ProcedureType.DROP_TABLE_PROCEDURE,
+        new DropTableProcedure(req.database, req.tableName, req.queryId));
+  }
+
+  public TDeleteTableDeviceResp deleteDevices(final TDeleteTableDeviceReq req) {
+    long procedureId;
+    DeleteDevicesProcedure procedure = null;
+    synchronized (this) {
+      final Pair<Long, Boolean> procedureIdDuplicatePair =
+          checkDuplicateTableTask(
+              req.database,
+              null,
+              req.tableName,
+              req.queryId,
+              ProcedureType.DELETE_DEVICES_PROCEDURE);
+      procedureId = procedureIdDuplicatePair.getLeft();
+
+      if (procedureId == -1) {
+        if (Boolean.TRUE.equals(procedureIdDuplicatePair.getRight())) {
+          return new TDeleteTableDeviceResp(
+              RpcUtils.getStatus(
+                  TSStatusCode.OVERLAP_WITH_EXISTING_TASK,
+                  "Some other task is operating table with same name."));
+        }
+        procedure =
+            new DeleteDevicesProcedure(
+                req.database,
+                req.tableName,
+                req.queryId,
+                req.getPatternInfo(),
+                req.getFilterInfo(),
+                req.getModInfo());
+        procedureId = this.executor.submitProcedure(procedure);
+      }
+    }
+    executor.getResultOrProcedure(procedureId);
+    final List<TSStatus> procedureStatus = new ArrayList<>();
+    if (waitingProcedureFinished(Collections.singletonList(procedureId), procedureStatus)) {
+      if (Objects.isNull(procedure)) {
+        procedure = ((DeleteDevicesProcedure) executor.getResultOrProcedure(procedureId));
+      }
+      return new TDeleteTableDeviceResp(StatusUtils.OK)
+          .setDeletedNum(Objects.nonNull(procedure) ? procedure.getDeletedDevicesNum() : -1);
+    } else {
+      return new TDeleteTableDeviceResp(procedureStatus.get(0));
+    }
   }
 
   private TSStatus executeWithoutDuplicate(
@@ -1362,7 +1693,7 @@ public class ProcedureManager {
     long procedureId;
     synchronized (this) {
       final Pair<Long, Boolean> procedureIdDuplicatePair =
-          awaitDuplicateTableTask(database, table, tableName, queryId, thisType);
+          checkDuplicateTableTask(database, table, tableName, queryId, thisType);
       procedureId = procedureIdDuplicatePair.getLeft();
 
       if (procedureId == -1) {
@@ -1375,17 +1706,13 @@ public class ProcedureManager {
       }
     }
     final List<TSStatus> procedureStatus = new ArrayList<>();
-    final boolean isSucceed =
-        waitingProcedureFinished(Collections.singletonList(procedureId), procedureStatus);
-    if (isSucceed) {
-      return StatusUtils.OK;
-    } else {
-      return procedureStatus.get(0);
-    }
+    return waitingProcedureFinished(Collections.singletonList(procedureId), procedureStatus)
+        ? StatusUtils.OK
+        : procedureStatus.get(0);
   }
 
-  private Pair<Long, Boolean> awaitDuplicateTableTask(
-      final String database,
+  public Pair<Long, Boolean> checkDuplicateTableTask(
+      final @Nonnull String database,
       final TsTable table,
       final String tableName,
       final String queryId,
@@ -1404,30 +1731,28 @@ public class ProcedureManager {
           if (type == thisType && Objects.equals(table, createTableProcedure.getTable())) {
             return new Pair<>(procedure.getProcId(), false);
           }
+          // tableName == null indicates delete database procedure
           if (database.equals(createTableProcedure.getDatabase())
-              && Objects.equals(tableName, createTableProcedure.getTable().getTableName())) {
+              && (Objects.isNull(tableName)
+                  || Objects.equals(tableName, createTableProcedure.getTable().getTableName()))) {
             return new Pair<>(-1L, true);
           }
           break;
         case ADD_TABLE_COLUMN_PROCEDURE:
-          final AddTableColumnProcedure addTableColumnProcedure =
-              (AddTableColumnProcedure) procedure;
-          if (type == thisType && queryId.equals(addTableColumnProcedure.getQueryId())) {
-            return new Pair<>(procedure.getProcId(), false);
-          }
-          if (database.equals(addTableColumnProcedure.getDatabase())
-              && Objects.equals(tableName, addTableColumnProcedure.getTableName())) {
-            return new Pair<>(-1L, true);
-          }
-          break;
         case SET_TABLE_PROPERTIES_PROCEDURE:
-          final SetTablePropertiesProcedure setTablePropertiesProcedure =
-              (SetTablePropertiesProcedure) procedure;
-          if (type == thisType && queryId.equals(setTablePropertiesProcedure.getQueryId())) {
+        case RENAME_TABLE_COLUMN_PROCEDURE:
+        case DROP_TABLE_COLUMN_PROCEDURE:
+        case DROP_TABLE_PROCEDURE:
+        case DELETE_DEVICES_PROCEDURE:
+          final AbstractAlterOrDropTableProcedure<?> alterTableProcedure =
+              (AbstractAlterOrDropTableProcedure<?>) procedure;
+          if (type == thisType && queryId.equals(alterTableProcedure.getQueryId())) {
             return new Pair<>(procedure.getProcId(), false);
           }
-          if (database.equals(setTablePropertiesProcedure.getDatabase())
-              && Objects.equals(tableName, setTablePropertiesProcedure.getTableName())) {
+          // tableName == null indicates delete database procedure
+          if (database.equals(alterTableProcedure.getDatabase())
+              && (Objects.isNull(tableName)
+                  || Objects.equals(tableName, alterTableProcedure.getTableName()))) {
             return new Pair<>(-1L, true);
           }
           break;

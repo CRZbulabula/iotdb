@@ -23,22 +23,23 @@ import org.apache.iotdb.db.queryengine.plan.relational.planner.OrderingScheme;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.Symbol;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.AggregationNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.FilterNode;
+import org.apache.iotdb.db.queryengine.plan.relational.planner.node.GapFillNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.JoinNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.LimitNode;
+import org.apache.iotdb.db.queryengine.plan.relational.planner.node.LinearFillNode;
+import org.apache.iotdb.db.queryengine.plan.relational.planner.node.PreviousFillNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.ProjectNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.SortNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.StreamSortNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.TableScanNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.TopKNode;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Expression;
-import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Query;
 
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 import static org.apache.iotdb.db.queryengine.plan.relational.planner.optimizations.PushPredicateIntoTableScan.containsDiffFunction;
-import static org.apache.iotdb.db.utils.constant.TestConstant.TIMESTAMP_STR;
 
 /**
  * <b>Optimization phase:</b> Distributed plan planning.
@@ -54,7 +55,7 @@ public class PushLimitOffsetIntoTableScan implements PlanOptimizer {
 
   @Override
   public PlanNode optimize(PlanNode plan, PlanOptimizer.Context context) {
-    if (!(context.getAnalysis().getStatement() instanceof Query)) {
+    if (!(context.getAnalysis().isQuery())) {
       return plan;
     }
 
@@ -84,10 +85,8 @@ public class PushLimitOffsetIntoTableScan implements PlanOptimizer {
       node.setLeftChild(leftChild);
       node.setRightChild(rightChild);
 
-      // TODO(beyyes) when outer, left, right join is introduced, fix the condition
-      if (node.getJoinType() == JoinNode.JoinType.INNER) {
-        context.enablePushDown = false;
-      }
+      // TODO(beyyes) optimize for outer, left, right join
+      context.enablePushDown = false;
 
       return node;
     }
@@ -117,6 +116,32 @@ public class PushLimitOffsetIntoTableScan implements PlanOptimizer {
       }
       node.setChild(node.getChild().accept(this, context));
       return node;
+    }
+
+    @Override
+    public PlanNode visitGapFill(GapFillNode node, Context context) {
+      context.enablePushDown = false;
+      return node;
+    }
+
+    @Override
+    public PlanNode visitLinearFill(LinearFillNode node, Context context) {
+      context.enablePushDown = false;
+      return node;
+    }
+
+    @Override
+    public PlanNode visitPreviousFill(PreviousFillNode node, Context context) {
+      if (node.getGroupingKeys().isPresent()) {
+        context.enablePushDown = false;
+        return node;
+      } else {
+        PlanNode newNode = node.clone();
+        for (PlanNode child : node.getChildren()) {
+          newNode.addChild(child.accept(this, context));
+        }
+        return newNode;
+      }
     }
 
     @Override
@@ -156,7 +181,7 @@ public class PushLimitOffsetIntoTableScan implements PlanOptimizer {
           analysis.getTableColumnSchema(tableScanNode.getQualifiedObjectName());
       Set<Symbol> sortSymbols = new HashSet<>();
       for (Symbol orderBy : orderingScheme.getOrderBy()) {
-        if (TIMESTAMP_STR.equalsIgnoreCase(orderBy.getName())) {
+        if (tableScanNode.isTimeColumn(orderBy)) {
           break;
         }
 

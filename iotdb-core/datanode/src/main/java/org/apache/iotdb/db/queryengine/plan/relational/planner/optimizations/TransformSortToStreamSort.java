@@ -35,7 +35,7 @@ import org.apache.iotdb.db.queryengine.plan.relational.planner.node.TableScanNod
 
 import java.util.Map;
 
-import static org.apache.iotdb.db.queryengine.plan.expression.leaf.TimestampOperand.TIMESTAMP_EXPRESSION_STRING;
+import static org.apache.iotdb.db.queryengine.plan.relational.planner.node.TableScanNode.isTimeColumn;
 
 /**
  * <b>Optimization phase:</b> Logical plan planning.
@@ -120,40 +120,42 @@ public class TransformSortToStreamSort implements PlanOptimizer {
       return node;
     }
 
-    private boolean isOrderByAllIdsAndTime(
-        Map<Symbol, ColumnSchema> tableColumnSchema,
-        OrderingScheme orderingScheme,
-        int streamSortIndex) {
-      for (Map.Entry<Symbol, ColumnSchema> entry : tableColumnSchema.entrySet()) {
-        if (entry.getValue().getColumnCategory() == TsTableColumnCategory.ID
-            && !orderingScheme.getOrderings().containsKey(entry.getKey())) {
-          return false;
-        }
-      }
-      return orderingScheme.getOrderings().size() == streamSortIndex + 1
-          || TIMESTAMP_EXPRESSION_STRING.equalsIgnoreCase(
-              orderingScheme.getOrderBy().get(streamSortIndex + 1).getName());
-    }
-
     @Override
     public PlanNode visitTableScan(TableScanNode node, Context context) {
       context.setTableScanNode(node);
       return node;
     }
 
+    @Override
     public PlanNode visitAggregation(AggregationNode node, Context context) {
       context.setCanTransform(false);
       return visitSingleChildProcess(node, context);
     }
 
+    @Override
     public PlanNode visitAggregationTableScan(AggregationTableScanNode node, Context context) {
       context.setCanTransform(false);
       return visitTableScan(node, context);
     }
   }
 
+  public static boolean isOrderByAllIdsAndTime(
+      Map<Symbol, ColumnSchema> tableColumnSchema,
+      OrderingScheme orderingScheme,
+      int streamSortIndex) {
+    for (Map.Entry<Symbol, ColumnSchema> entry : tableColumnSchema.entrySet()) {
+      if (entry.getValue().getColumnCategory() == TsTableColumnCategory.ID
+          && !orderingScheme.getOrderings().containsKey(entry.getKey())) {
+        return false;
+      }
+    }
+    return orderingScheme.getOrderings().size() == streamSortIndex + 1
+        || isTimeColumn(orderingScheme.getOrderBy().get(streamSortIndex + 1), tableColumnSchema);
+  }
+
   private static class Context {
     private TableScanNode tableScanNode;
+
     private boolean canTransform = true;
 
     public TableScanNode getTableScanNode() {

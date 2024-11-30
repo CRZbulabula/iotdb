@@ -53,7 +53,6 @@ import org.apache.iotdb.consensus.ratis.utils.RetryPolicy;
 import org.apache.iotdb.consensus.ratis.utils.Utils;
 import org.apache.iotdb.rpc.TSStatusCode;
 
-import org.apache.commons.pool2.KeyedObjectPool;
 import org.apache.commons.pool2.impl.GenericKeyedObjectPool;
 import org.apache.ratis.client.RaftClientRpc;
 import org.apache.ratis.conf.Parameters;
@@ -73,12 +72,15 @@ import org.apache.ratis.protocol.RaftPeerId;
 import org.apache.ratis.protocol.SnapshotManagementRequest;
 import org.apache.ratis.protocol.exceptions.AlreadyExistsException;
 import org.apache.ratis.protocol.exceptions.GroupMismatchException;
+import org.apache.ratis.protocol.exceptions.LeaderNotReadyException;
+import org.apache.ratis.protocol.exceptions.LeaderSteppingDownException;
 import org.apache.ratis.protocol.exceptions.NotLeaderException;
 import org.apache.ratis.protocol.exceptions.RaftException;
 import org.apache.ratis.protocol.exceptions.ReadException;
 import org.apache.ratis.protocol.exceptions.ReadIndexException;
 import org.apache.ratis.protocol.exceptions.ResourceUnavailableException;
 import org.apache.ratis.protocol.exceptions.ServerNotReadyException;
+import org.apache.ratis.protocol.exceptions.StateMachineException;
 import org.apache.ratis.server.DivisionInfo;
 import org.apache.ratis.server.RaftServer;
 import org.apache.ratis.server.RaftServerConfigKeys;
@@ -174,6 +176,10 @@ class RatisConsensus implements IConsensus {
             .setWaitTime(
                 TimeDuration.valueOf(
                     this.config.getImpl().getRetryWaitMillis(), TimeUnit.MILLISECONDS))
+            .setMaxWaitTime(
+                TimeDuration.valueOf(
+                    this.config.getImpl().getRetryMaxWaitMillis(), TimeUnit.MILLISECONDS))
+            .setExponentialBackoff(true)
             .build();
     this.writeRetryPolicy =
         RetryPolicy.<RaftClientReply>newBuilder()
@@ -181,11 +187,18 @@ class RatisConsensus implements IConsensus {
             .setRetryHandler(
                 reply ->
                     !reply.isSuccess()
-                        && (reply.getException() instanceof ResourceUnavailableException))
+                        && ((reply.getException() instanceof ResourceUnavailableException)
+                            || reply.getException() instanceof LeaderNotReadyException
+                            || reply.getException() instanceof LeaderSteppingDownException
+                            || reply.getException() instanceof StateMachineException))
             .setMaxAttempts(this.config.getImpl().getRetryTimesMax())
             .setWaitTime(
                 TimeDuration.valueOf(
                     this.config.getImpl().getRetryWaitMillis(), TimeUnit.MILLISECONDS))
+            .setMaxWaitTime(
+                TimeDuration.valueOf(
+                    this.config.getImpl().getRetryMaxWaitMillis(), TimeUnit.MILLISECONDS))
+            .setExponentialBackoff(true)
             .build();
 
     this.diskGuardian = new DiskGuardian(() -> this, this.config);
@@ -318,6 +331,8 @@ class RatisConsensus implements IConsensus {
         if (ex != null) {
           suggestedLeader = ex.getSuggestedLeader();
         }
+      } catch (GroupMismatchException e) {
+        throw new ConsensusGroupNotExistException(groupId);
       } catch (Exception e) {
         throw new RatisRequestFailedException(e);
       }
@@ -333,6 +348,8 @@ class RatisConsensus implements IConsensus {
         throw new RatisRequestFailedException(reply.getException());
       }
       writeResult = Utils.deserializeFrom(reply.getMessage().getContent().asReadOnlyByteBuffer());
+    } catch (GroupMismatchException e) {
+      throw new ConsensusGroupNotExistException(groupId);
     } catch (Exception e) {
       throw new RatisRequestFailedException(e);
     }
@@ -390,6 +407,9 @@ class RatisConsensus implements IConsensus {
       } else {
         throw new RatisRequestFailedException(e);
       }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RatisReadUnavailableException(e);
     } catch (Exception e) {
       throw new RatisRequestFailedException(e);
     }
@@ -773,6 +793,9 @@ class RatisConsensus implements IConsensus {
 
   @Override
   public List<ConsensusGroupId> getAllConsensusGroupIdsWithoutStarting() {
+    if (!storageDir.exists()) {
+      return Collections.emptyList();
+    }
     List<ConsensusGroupId> consensusGroupIds = new ArrayList<>();
     try (DirectoryStream<Path> stream = Files.newDirectoryStream(storageDir.toPath())) {
       for (Path path : stream) {
@@ -956,7 +979,7 @@ class RatisConsensus implements IConsensus {
     }
 
     @Override
-    public KeyedObjectPool<RaftGroup, RatisClient> createClientPool(
+    public GenericKeyedObjectPool<RaftGroup, RatisClient> createClientPool(
         ClientManager<RaftGroup, RatisClient> manager) {
       GenericKeyedObjectPool<RaftGroup, RatisClient> clientPool =
           new GenericKeyedObjectPool<>(

@@ -30,7 +30,6 @@ import org.apache.iotdb.db.exception.query.QueryProcessException;
 import org.apache.iotdb.db.exception.query.QueryTimeoutRuntimeException;
 import org.apache.iotdb.db.exception.sql.SemanticException;
 import org.apache.iotdb.db.protocol.thrift.OperationType;
-import org.apache.iotdb.db.queryengine.exception.MemoryNotEnoughException;
 import org.apache.iotdb.rpc.RpcUtils;
 import org.apache.iotdb.rpc.TSStatusCode;
 
@@ -106,7 +105,8 @@ public class ErrorHandlingUtils {
             || status.getCode() == TSStatusCode.NO_PERMISSION.getStatusCode()
             || status.getCode() == TSStatusCode.ILLEGAL_PATH.getStatusCode()
             || status.getCode() == TSStatusCode.NUMERIC_VALUE_OUT_OF_RANGE.getStatusCode()
-            || status.getCode() == TSStatusCode.DIVISION_BY_ZERO.getStatusCode()) {
+            || status.getCode() == TSStatusCode.DIVISION_BY_ZERO.getStatusCode()
+            || status.getCode() == TSStatusCode.DATE_OUT_OF_RANGE.getStatusCode()) {
           LOGGER.warn(message);
         } else {
           LOGGER.warn(message, e);
@@ -160,8 +160,6 @@ public class ErrorHandlingUtils {
       return RpcUtils.getStatus(((IoTDBRuntimeException) t).getErrorCode(), t.getMessage());
     } else if (t instanceof ModelException) {
       return RpcUtils.getStatus(((ModelException) t).getStatusCode(), rootCause.getMessage());
-    } else if (t instanceof MemoryNotEnoughException) {
-      return RpcUtils.getStatus(TSStatusCode.QUOTA_MEM_QUERY_NOT_ENOUGH, rootCause.getMessage());
     }
 
     if (t instanceof RuntimeException && rootCause instanceof IoTDBException) {

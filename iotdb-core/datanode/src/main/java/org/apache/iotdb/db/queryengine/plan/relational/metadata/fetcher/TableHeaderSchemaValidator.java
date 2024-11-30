@@ -52,6 +52,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -80,27 +81,35 @@ public class TableHeaderSchemaValidator {
   }
 
   public Optional<TableSchema> validateTableHeaderSchema(
-      String database, TableSchema tableSchema, MPPQueryContext context, boolean allowCreateTable) {
+      final String database,
+      final TableSchema tableSchema,
+      final MPPQueryContext context,
+      final boolean allowCreateTable) {
     // The schema cache R/W and fetch operation must be locked together thus the cache clean
     // operation executed by delete timeSeries will be effective.
     DataNodeSchemaLockManager.getInstance()
         .takeReadLock(context, SchemaLockType.VALIDATE_VS_DELETION);
 
-    List<ColumnSchema> inputColumnList = tableSchema.getColumns();
+    final List<ColumnSchema> inputColumnList = tableSchema.getColumns();
     if (inputColumnList == null || inputColumnList.isEmpty()) {
       throw new IllegalArgumentException(
           "No column other than Time present, please check the request");
     }
-    TsTable table = DataNodeTableCache.getInstance().getTable(database, tableSchema.getTableName());
-    List<ColumnSchema> missingColumnList = new ArrayList<>();
+    // Get directly if there is a table because we do not want "addColumn" to affect
+    // original writings
+    TsTable table =
+        DataNodeTableCache.getInstance().getTableInWrite(database, tableSchema.getTableName());
+    final List<ColumnSchema> missingColumnList = new ArrayList<>();
 
+    final boolean isAutoCreateSchemaEnabled =
+        IoTDBDescriptor.getInstance().getConfig().isAutoCreateSchemaEnabled();
     // first round validate, check existing schema
     if (table == null) {
       // TODO table metadata: authority check for table create
       // auto create missing table
       // it's ok that many write requests concurrently auto create same table, the thread safety
       // will be guaranteed by ProcedureManager.createTable in CN
-      if (allowCreateTable) {
+      if (allowCreateTable && isAutoCreateSchemaEnabled) {
         autoCreateTable(database, tableSchema);
         table = DataNodeTableCache.getInstance().getTable(database, tableSchema.getTableName());
         if (table == null) {
@@ -112,25 +121,36 @@ public class TableHeaderSchemaValidator {
       }
     }
 
-    for (ColumnSchema columnSchema : inputColumnList) {
+    boolean refreshed = false;
+    for (final ColumnSchema columnSchema : inputColumnList) {
       TsTableColumnSchema existingColumn = table.getColumnSchema(columnSchema.getName());
-      if (existingColumn == null) {
-        // check arguments for column auto creation
-        if (columnSchema.getColumnCategory() == null) {
-          throw new SemanticException(
-              String.format(
-                  "Unknown column category for %s. Cannot auto create column.",
-                  columnSchema.getName()),
-              TSStatusCode.COLUMN_NOT_EXISTS.getStatusCode());
+      if (Objects.isNull(existingColumn)) {
+        if (!refreshed) {
+          // Refresh because there may be new columns added and failed to commit
+          // Allow refresh only once to avoid too much failure columns in sql when there are column
+          // procedures
+          refreshed = true;
+          table = DataNodeTableCache.getInstance().getTable(database, tableSchema.getTableName());
+          existingColumn = table.getColumnSchema(columnSchema.getName());
         }
-        if (columnSchema.getType() == null) {
-          throw new SemanticException(
-              String.format(
-                  "Unknown column data type for %s. Cannot auto create column.",
-                  columnSchema.getName()),
-              TSStatusCode.COLUMN_NOT_EXISTS.getStatusCode());
+        if (Objects.isNull(existingColumn)) {
+          // check arguments for column auto creation
+          if (columnSchema.getColumnCategory() == null) {
+            throw new SemanticException(
+                String.format(
+                    "Unknown column category for %s. Cannot auto create column.",
+                    columnSchema.getName()),
+                TSStatusCode.COLUMN_NOT_EXISTS.getStatusCode());
+          }
+          if (columnSchema.getType() == null) {
+            throw new SemanticException(
+                String.format(
+                    "Unknown column data type for %s. Cannot auto create column.",
+                    columnSchema.getName()),
+                TSStatusCode.COLUMN_NOT_EXISTS.getStatusCode());
+          }
+          missingColumnList.add(columnSchema);
         }
-        missingColumnList.add(columnSchema);
       } else {
         // leave measurement columns' dataType checking to the caller, then the caller can decide
         // whether to do partial insert
@@ -145,9 +165,8 @@ public class TableHeaderSchemaValidator {
       }
     }
 
-    List<ColumnSchema> resultColumnList = new ArrayList<>();
-    if (!missingColumnList.isEmpty()
-        && IoTDBDescriptor.getInstance().getConfig().isAutoCreateSchemaEnabled()) {
+    final List<ColumnSchema> resultColumnList = new ArrayList<>();
+    if (!missingColumnList.isEmpty() && isAutoCreateSchemaEnabled) {
       // TODO table metadata: authority check for table alter
       // check id or attribute column data type in this method
       autoCreateColumn(database, tableSchema.getTableName(), missingColumnList, context);
@@ -174,13 +193,13 @@ public class TableHeaderSchemaValidator {
     return Optional.of(new TableSchema(tableSchema.getTableName(), resultColumnList));
   }
 
-  private void autoCreateTable(String database, TableSchema tableSchema) {
-    TsTable tsTable = new TsTable(tableSchema.getTableName());
+  private void autoCreateTable(final String database, final TableSchema tableSchema) {
+    final TsTable tsTable = new TsTable(tableSchema.getTableName());
     addColumnSchema(tableSchema.getColumns(), tsTable);
-    CreateTableTask createTableTask = new CreateTableTask(tsTable, database, true);
+    final CreateTableTask createTableTask = new CreateTableTask(tsTable, database, true);
     try {
-      ListenableFuture<ConfigTaskResult> future = createTableTask.execute(configTaskExecutor);
-      ConfigTaskResult result = future.get();
+      final ListenableFuture<ConfigTaskResult> future = createTableTask.execute(configTaskExecutor);
+      final ConfigTaskResult result = future.get();
       if (result.getStatusCode().getStatusCode() != TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
         throw new RuntimeException(
             new IoTDBException(
@@ -233,7 +252,7 @@ public class TableHeaderSchemaValidator {
         return new AttributeColumnSchema(columnName, dataType);
       case TIME:
         throw new SemanticException(
-            "Create table statement shall not specify column category TIME");
+            "Create table or add column statement shall not specify column category TIME");
       case MEASUREMENT:
         return new MeasurementColumnSchema(
             columnName,

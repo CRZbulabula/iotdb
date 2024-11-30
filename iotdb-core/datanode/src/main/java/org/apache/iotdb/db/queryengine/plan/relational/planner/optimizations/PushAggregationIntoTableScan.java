@@ -16,7 +16,6 @@ package org.apache.iotdb.db.queryengine.plan.relational.planner.optimizations;
 
 import org.apache.iotdb.db.queryengine.common.QueryId;
 import org.apache.iotdb.db.queryengine.common.SessionInfo;
-import org.apache.iotdb.db.queryengine.plan.expression.leaf.TimestampOperand;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.PlanNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.PlanVisitor;
 import org.apache.iotdb.db.queryengine.plan.relational.metadata.Metadata;
@@ -28,7 +27,6 @@ import org.apache.iotdb.db.queryengine.plan.relational.planner.node.ProjectNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.TableScanNode;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Expression;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.FunctionCall;
-import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Query;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.SymbolReference;
 import org.apache.iotdb.db.queryengine.transformation.dag.column.unary.scalar.TableBuiltinScalarFunction;
 
@@ -55,8 +53,7 @@ public class PushAggregationIntoTableScan implements PlanOptimizer {
 
   @Override
   public PlanNode optimize(PlanNode plan, PlanOptimizer.Context context) {
-    if (!(context.getAnalysis().getStatement() instanceof Query)
-        || !context.getAnalysis().hasAggregates()) {
+    if (!(context.getAnalysis().isQuery()) || !context.getAnalysis().containsAggregationQuery()) {
       return plan;
     }
 
@@ -96,7 +93,10 @@ public class PushAggregationIntoTableScan implements PlanOptimizer {
           tableScanNode = (TableScanNode) projectNode.getChild();
         }
       }
-      if (tableScanNode == null) { // no need to optimize
+
+      // only optimize AggregationNode with raw TableScanNode
+      if (tableScanNode == null
+          || tableScanNode instanceof AggregationTableScanNode) { // no need to optimize
         return node;
       }
 
@@ -137,11 +137,7 @@ public class PushAggregationIntoTableScan implements PlanOptimizer {
           hasProject ? projectNode.getAssignments().getMap() : null;
       // calculate Function part
       for (AggregationNode.Aggregation aggregation : values) {
-        // if the function cannot make use of Statistics, we don't push down
-        if (!metadata.canUseStatistics(
-            aggregation.getResolvedFunction().getSignature().getName())) {
-          return PushDownLevel.NOOP;
-        }
+        // all the functions can be pre-agg in AggTableScanNode
 
         // if expr appears in arguments of Aggregation, we don't push down
         if (hasProject
@@ -154,9 +150,15 @@ public class PushAggregationIntoTableScan implements PlanOptimizer {
       }
 
       // calculate DataSet part
+      boolean singleDeviceEntry = tableScanNode.getDeviceEntries().size() < 2;
       if (groupingKeys.isEmpty()) {
         // GlobalAggregation
-        return PushDownLevel.COMPLETE;
+        if (singleDeviceEntry) {
+          return PushDownLevel.COMPLETE;
+        } else {
+          // We need to two-stage Aggregation to combine Aggregation result of different DeviceEntry
+          return PushDownLevel.PARTIAL;
+        }
       }
 
       List<FunctionCall> dateBinFunctionsOfTime = new ArrayList<>();
@@ -166,17 +168,20 @@ public class PushAggregationIntoTableScan implements PlanOptimizer {
                       hasProject
                               && !(assignments.get(groupingKey) instanceof SymbolReference
                                   || isDateBinFunctionOfTime(
-                                      assignments.get(groupingKey), dateBinFunctionsOfTime))
-                          || tableScanNode.isMeasurementColumn(groupingKey))
+                                      assignments.get(groupingKey),
+                                      dateBinFunctionsOfTime,
+                                      tableScanNode))
+                          || tableScanNode.isMeasurementOrTimeColumn(groupingKey))
           || dateBinFunctionsOfTime.size() > 1) {
-        // If expr except date_bin(time) or Measurement column appears in groupingKeys, we don't
-        // push down;
+        // If expr except date_bin(time), Measurement column, or Time column appears in
+        // groupingKeys, we don't push down;
         // Attention: Now we also don't push down if there are more than one date_bin function
         // appear in groupingKeys.
 
         return PushDownLevel.NOOP;
-      } else if (ImmutableSet.copyOf(groupingKeys)
-          .containsAll(tableScanNode.getIdColumnsInTableStore(metadata, session))) {
+      } else if (singleDeviceEntry
+          || ImmutableSet.copyOf(groupingKeys)
+              .containsAll(tableScanNode.getIdColumnsInTableStore(metadata, session))) {
         // If all ID columns appear in groupingKeys and no Measurement column appears, we can push
         // down completely.
         return PushDownLevel.COMPLETE;
@@ -186,15 +191,16 @@ public class PushAggregationIntoTableScan implements PlanOptimizer {
     }
 
     private boolean isDateBinFunctionOfTime(
-        Expression expression, List<FunctionCall> dateBinFunctionsOfTime) {
+        Expression expression,
+        List<FunctionCall> dateBinFunctionsOfTime,
+        TableScanNode tableScanNode) {
       if (expression instanceof FunctionCall) {
         FunctionCall function = (FunctionCall) expression;
         if (TableBuiltinScalarFunction.DATE_BIN
                 .getFunctionName()
                 .equals(function.getName().toString())
             && function.getArguments().get(2) instanceof SymbolReference
-            && TimestampOperand.TIMESTAMP_EXPRESSION_STRING.equalsIgnoreCase(
-                ((SymbolReference) function.getArguments().get(2)).getName())) {
+            && tableScanNode.isTimeColumn(Symbol.from(function.getArguments().get(2)))) {
           dateBinFunctionsOfTime.add(function);
           return true;
         }

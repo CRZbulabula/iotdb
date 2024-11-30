@@ -23,6 +23,7 @@ import org.apache.iotdb.common.rpc.thrift.TSStatus;
 import org.apache.iotdb.commons.concurrent.IoTThreadFactory;
 import org.apache.iotdb.commons.concurrent.ThreadName;
 import org.apache.iotdb.commons.concurrent.threadpool.WrappedThreadPoolExecutor;
+import org.apache.iotdb.commons.conf.CommonDescriptor;
 import org.apache.iotdb.db.auth.AuthorityChecker;
 import org.apache.iotdb.db.conf.IoTDBConfig;
 import org.apache.iotdb.db.conf.IoTDBDescriptor;
@@ -77,6 +78,10 @@ public class ActiveLoadTsFileLoader {
   }
 
   public void tryTriggerTsFileLoad(String absolutePath, boolean isGeneratedByPipe) {
+    if (CommonDescriptor.getInstance().getConfig().isReadOnly()) {
+      return;
+    }
+
     if (pendingQueue.enqueue(absolutePath, isGeneratedByPipe)) {
       initFailDirIfNecessary();
       adjustExecutorIfNecessary();
@@ -206,12 +211,8 @@ public class ActiveLoadTsFileLoader {
   }
 
   private void handleLoadFailure(final Pair<String, Boolean> filePair, final TSStatus status) {
-    if (status.getMessage() != null && status.getMessage().contains("memory")) {
-      LOGGER.info(
-          "Rejecting auto load tsfile {} (isGeneratedByPipe = {}) due to memory constraints, will retry later.",
-          filePair.getLeft(),
-          filePair.getRight());
-    } else {
+    if (!ActiveLoadFailedMessageHandler.isExceptionMessageShouldRetry(
+        filePair, status.getMessage())) {
       LOGGER.warn(
           "Failed to auto load tsfile {} (isGeneratedByPipe = {}), status: {}. File will be moved to fail directory.",
           filePair.getLeft(),
@@ -230,12 +231,7 @@ public class ActiveLoadTsFileLoader {
   }
 
   private void handleOtherException(final Pair<String, Boolean> filePair, final Exception e) {
-    if (e.getMessage() != null && e.getMessage().contains("memory")) {
-      LOGGER.info(
-          "Rejecting auto load tsfile {} (isGeneratedByPipe = {}) due to memory constraints, will retry later.",
-          filePair.getLeft(),
-          filePair.getRight());
-    } else {
+    if (!ActiveLoadFailedMessageHandler.isExceptionMessageShouldRetry(filePair, e.getMessage())) {
       LOGGER.warn(
           "Failed to auto load tsfile {} (isGeneratedByPipe = {}) because of an unexpected exception. File will be moved to fail directory.",
           filePair.getLeft(),
@@ -266,8 +262,8 @@ public class ActiveLoadTsFileLoader {
     }
   }
 
-  public boolean isFilePendingOrLoading(final String filePath) {
-    return pendingQueue.isFilePendingOrLoading(filePath);
+  public boolean isFilePendingOrLoading(final File file) {
+    return pendingQueue.isFilePendingOrLoading(file.getAbsolutePath());
   }
 
   // Metrics

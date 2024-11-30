@@ -73,6 +73,8 @@ public class IoTDBConfigRegionAirGapConnector extends IoTDBAirGapConnector {
         Boolean.toString(shouldReceiverConvertOnTypeMismatch));
     params.put(
         PipeTransferHandshakeConstant.HANDSHAKE_KEY_LOAD_TSFILE_STRATEGY, loadTsFileStrategy);
+    params.put(PipeTransferHandshakeConstant.HANDSHAKE_KEY_USERNAME, username);
+    params.put(PipeTransferHandshakeConstant.HANDSHAKE_KEY_PASSWORD, password);
 
     return PipeTransferConfigNodeHandshakeV2Req.toTPipeTransferBytes(params);
   }
@@ -211,7 +213,7 @@ public class IoTDBConfigRegionAirGapConnector extends IoTDBAirGapConnector {
         socket,
         PipeTransferConfigSnapshotSealReq.toTPipeTransferBytes(
             // The pattern is surely Non-null
-            pipeConfigRegionSnapshotEvent.getPatternString(),
+            pipeConfigRegionSnapshotEvent.getTreePatternString(),
             snapshot.getName(),
             snapshot.length(),
             Objects.nonNull(templateFile) ? templateFile.getName() : null,

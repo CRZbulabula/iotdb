@@ -70,6 +70,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -302,23 +303,23 @@ public class IoTConsensus implements IConsensus {
       logger.info("[IoTConsensus] inactivate new peer: {}", peer);
       impl.inactivePeer(peer, false);
 
-      // step 2: take snapshot
+      // step 2: notify all the other Peers to build the sync connection to newPeer
+      logger.info("[IoTConsensus] notify current peers to build sync log...");
+      impl.notifyPeersToBuildSyncLogChannel(peer);
+
+      // step 3: take snapshot
       logger.info("[IoTConsensus] start to take snapshot...");
-      impl.checkAndLockSafeDeletedSearchIndex();
+
       impl.takeSnapshot();
 
-      // step 3: transit snapshot
+      // step 4: transit snapshot
       logger.info("[IoTConsensus] start to transmit snapshot...");
       impl.transmitSnapshot(peer);
 
-      // step 4: let the new peer load snapshot
+      // step 5: let the new peer load snapshot
       logger.info("[IoTConsensus] trigger new peer to load snapshot...");
       impl.triggerSnapshotLoad(peer);
       KillPoint.setKillPoint(DataNodeKillPoints.COORDINATOR_ADD_PEER_TRANSITION);
-
-      // step 5: notify all the other Peers to build the sync connection to newPeer
-      logger.info("[IoTConsensus] notify current peers to build sync log...");
-      impl.notifyPeersToBuildSyncLogChannel(peer);
 
       // step 6: active new Peer
       logger.info("[IoTConsensus] activate new peer...");
@@ -339,7 +340,6 @@ public class IoTConsensus implements IConsensus {
       impl.notifyPeersToRemoveSyncLogChannel(peer);
       throw new ConsensusException(e);
     } finally {
-      impl.checkAndUnlockSafeDeletedSearchIndex();
       logger.info("[IoTConsensus] clean up local snapshot...");
       impl.cleanupLocalSnapshot();
     }
@@ -360,7 +360,7 @@ public class IoTConsensus implements IConsensus {
     // let other peers remove the sync channel with target peer
     impl.notifyPeersToRemoveSyncLogChannel(peer);
     KillPoint.setKillPoint(
-        IoTConsensusRemovePeerCoordinatorKillPoints.AFTER_NOTIFY_PEERS_TO_REMOVE_SYNC_LOG_CHANNEL);
+        IoTConsensusRemovePeerCoordinatorKillPoints.AFTER_NOTIFY_PEERS_TO_REMOVE_REPLICATE_CHANNEL);
 
     try {
       // let target peer reject new write
@@ -435,6 +435,9 @@ public class IoTConsensus implements IConsensus {
   }
 
   public static List<ConsensusGroupId> getConsensusGroupIdsFromDir(File storageDir, Logger logger) {
+    if (!storageDir.exists()) {
+      return Collections.emptyList();
+    }
     List<ConsensusGroupId> consensusGroupIds = new ArrayList<>();
     try (DirectoryStream<Path> stream = Files.newDirectoryStream(storageDir.toPath())) {
       for (Path path : stream) {

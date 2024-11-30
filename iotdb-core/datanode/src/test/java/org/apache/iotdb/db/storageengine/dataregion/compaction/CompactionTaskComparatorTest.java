@@ -32,7 +32,7 @@ import org.apache.iotdb.db.storageengine.dataregion.compaction.schedule.Compacti
 import org.apache.iotdb.db.storageengine.dataregion.compaction.schedule.comparator.DefaultCompactionTaskComparatorImpl;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.schedule.constant.CompactionPriority;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.utils.CompactionConfigRestorer;
-import org.apache.iotdb.db.storageengine.dataregion.modification.Deletion;
+import org.apache.iotdb.db.storageengine.dataregion.modification.TreeDeletionEntry;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.TsFileManager;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.TsFileResource;
 import org.apache.iotdb.db.utils.datastructure.FixedPriorityBlockingQueue;
@@ -42,6 +42,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -118,7 +119,7 @@ public class CompactionTaskComparatorTest {
 
   /** Test comparation of task with same file num and file size, different compaction count */
   @Test
-  public void testFileCompactCountCompare() throws InterruptedException {
+  public void testFileCompactCountCompare1() throws InterruptedException {
     AbstractCompactionTask[] compactionTasks = new AbstractCompactionTask[100];
     for (int i = 0; i < 100; ++i) {
       List<TsFileResource> resources = new ArrayList<>();
@@ -136,6 +137,15 @@ public class CompactionTaskComparatorTest {
       AbstractCompactionTask currentTask = compactionTaskQueue.take();
       assertTrue(currentTask == compactionTasks[99 - i]);
     }
+  }
+
+  @Test
+  public void testFileCompactionCountCompare2() {
+    InnerSpaceCompactionTask task1 = Mockito.mock(InnerSpaceCompactionTask.class);
+    Mockito.when(task1.getAvgCompactionCount()).thenReturn(0.1);
+    InnerSpaceCompactionTask task2 = Mockito.mock(InnerSpaceCompactionTask.class);
+    Mockito.when(task2.getAvgCompactionCount()).thenReturn(0.2);
+    Assert.assertTrue(new DefaultCompactionTaskComparatorImpl().compare(task1, task2) < 0);
   }
 
   @Test
@@ -340,7 +350,9 @@ public class CompactionTaskComparatorTest {
     String targetFileName = "101-101-0-0.tsfile";
     FakedTsFileResource fakedTsFileResource =
         new FakedTsFileResource(new File(targetFileName), 100);
-    fakedTsFileResource.getModFile().write(new Deletion(new MeasurementPath("root.test.d1"), 1, 1));
+    fakedTsFileResource
+        .getModFileForWrite()
+        .write(new TreeDeletionEntry(new MeasurementPath("root.test.d1"), 1));
     compactionTaskQueue.put(
         new SettleCompactionTask(
             0,
@@ -352,7 +364,7 @@ public class CompactionTaskComparatorTest {
             0));
     SettleCompactionTask task = (SettleCompactionTask) compactionTaskQueue.take();
     Assert.assertEquals(targetFileName, task.getPartiallyDirtyFiles().get(0).getTsFile().getName());
-    fakedTsFileResource.getModFile().remove();
+    fakedTsFileResource.removeModFile();
   }
 
   @Test

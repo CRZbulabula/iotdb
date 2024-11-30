@@ -19,6 +19,8 @@
 
 package org.apache.iotdb.db.queryengine.plan.relational.sql.ast;
 
+import org.apache.iotdb.db.exception.sql.SemanticException;
+
 import javax.annotation.Nullable;
 
 public abstract class AstVisitor<R, C> {
@@ -113,6 +115,10 @@ public abstract class AstVisitor<R, C> {
 
   protected R visitQueryBody(QueryBody node, C context) {
     return visitRelation(node, context);
+  }
+
+  protected R visitFill(Fill node, C context) {
+    return visitNode(node, context);
   }
 
   protected R visitOrderBy(OrderBy node, C context) {
@@ -256,7 +262,7 @@ public abstract class AstVisitor<R, C> {
   }
 
   protected R visitSubqueryExpression(SubqueryExpression node, C context) {
-    return visitExpression(node, context);
+    throw new SemanticException("Only TableSubquery is supported now");
   }
 
   protected R visitSortItem(SortItem node, C context) {
@@ -303,27 +309,31 @@ public abstract class AstVisitor<R, C> {
     return visitNode(node, context);
   }
 
-  protected R visitCreateDB(CreateDB node, C context) {
+  protected R visitCreateDB(final CreateDB node, final C context) {
     return visitStatement(node, context);
   }
 
-  protected R visitDropDB(DropDB node, C context) {
+  protected R visitDropDB(final DropDB node, final C context) {
     return visitStatement(node, context);
   }
 
-  protected R visitShowDB(ShowDB node, C context) {
+  protected R visitShowDB(final ShowDB node, final C context) {
     return visitStatement(node, context);
   }
 
-  protected R visitCreateTable(CreateTable node, C context) {
+  protected R visitCreateTable(final CreateTable node, final C context) {
     return visitStatement(node, context);
   }
 
-  protected R visitProperty(Property node, C context) {
+  protected R visitProperty(final Property node, final C context) {
     return visitNode(node, context);
   }
 
-  protected R visitDropTable(DropTable node, C context) {
+  protected R visitDropTable(final DropTable node, final C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitDeleteDevice(final DeleteDevice node, final C context) {
     return visitStatement(node, context);
   }
 
@@ -344,6 +354,14 @@ public abstract class AstVisitor<R, C> {
   }
 
   protected R visitShowConfigNodes(ShowConfigNodes node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowAINodes(ShowAINodes node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitClearCache(ClearCache node, C context) {
     return visitStatement(node, context);
   }
 
@@ -496,6 +514,78 @@ public abstract class AstVisitor<R, C> {
   }
 
   protected R visitCountDevice(CountDevice node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitCreatePipe(CreatePipe node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitAlterPipe(AlterPipe node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitDropPipe(DropPipe node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitStartPipe(StartPipe node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitStopPipe(StopPipe node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowPipes(ShowPipes node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitCreatePipePlugin(CreatePipePlugin node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitDropPipePlugin(DropPipePlugin node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowPipePlugins(ShowPipePlugins node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitLoadTsFile(LoadTsFile node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitPipeEnriched(PipeEnriched node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowVersion(ShowVersion node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowCurrentUser(ShowCurrentUser node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowCurrentDatabase(ShowCurrentDatabase node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowCurrentSqlDialect(ShowCurrentSqlDialect node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowVariables(ShowVariables node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowClusterId(ShowClusterId node, C context) {
+    return visitStatement(node, context);
+  }
+
+  protected R visitShowCurrentTimestamp(ShowCurrentTimestamp node, C context) {
     return visitStatement(node, context);
   }
 }

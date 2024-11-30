@@ -27,7 +27,7 @@ import org.apache.iotdb.common.rpc.thrift.TSStatus;
 import org.apache.iotdb.commons.exception.runtime.ThriftSerDeException;
 import org.apache.iotdb.commons.service.metric.MetricService;
 import org.apache.iotdb.commons.utils.ThriftConfigNodeSerDeUtils;
-import org.apache.iotdb.confignode.client.CnToDnRequestType;
+import org.apache.iotdb.confignode.client.async.CnToDnAsyncRequestType;
 import org.apache.iotdb.confignode.client.async.CnToDnInternalServiceAsyncRequestManager;
 import org.apache.iotdb.confignode.client.async.handlers.DataNodeAsyncRequestContext;
 import org.apache.iotdb.confignode.consensus.request.write.database.PreDeleteDatabasePlan;
@@ -146,17 +146,9 @@ public class DeleteDatabaseProcedure
             env.getConfigManager().getConsensusManager().write(dataRegionDeleteTaskOfferPlan);
           }
 
-          // Delete DatabasePartitionTable
-          final TSStatus deleteConfigResult =
-              env.deleteDatabaseConfig(deleteDatabaseSchema.getName(), isGeneratedByPipe);
-
-          // Delete Database metrics
-          PartitionMetrics.unbindDatabaseRelatedMetricsWhenUpdate(
-              MetricService.getInstance(), deleteDatabaseSchema.getName());
-
           // try sync delete schemaengine region
           DataNodeAsyncRequestContext<TConsensusGroupId, TSStatus> asyncClientHandler =
-              new DataNodeAsyncRequestContext<>(CnToDnRequestType.DELETE_REGION);
+              new DataNodeAsyncRequestContext<>(CnToDnAsyncRequestType.DELETE_REGION);
           Map<Integer, RegionDeleteTask> schemaRegionDeleteTaskMap = new HashMap<>();
           int requestIndex = 0;
           for (TRegionReplicaSet schemaRegionReplicaSet : schemaRegionReplicaSets) {
@@ -200,13 +192,23 @@ public class DeleteDatabaseProcedure
             }
           }
 
+          env.getConfigManager()
+              .getLoadManager()
+              .clearDataPartitionPolicyTable(deleteDatabaseSchema.getName());
+          LOG.info("data partition policy table cleared.");
+
+          // Delete Database metrics
+          PartitionMetrics.unbindDatabaseRelatedMetricsWhenUpdate(
+              MetricService.getInstance(), deleteDatabaseSchema.getName());
+
+          // Delete DatabasePartitionTable
+          final TSStatus deleteConfigResult =
+              env.deleteDatabaseConfig(deleteDatabaseSchema.getName(), isGeneratedByPipe);
+
           if (deleteConfigResult.getCode() == TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
             LOG.info(
                 "[DeleteDatabaseProcedure] Database: {} is deleted successfully",
                 deleteDatabaseSchema.getName());
-            env.getConfigManager()
-                .getLoadManager()
-                .clearDataPartitionPolicyTable(deleteDatabaseSchema.getName());
             return Flow.NO_MORE_STATE;
           } else if (getCycles() > RETRY_THRESHOLD) {
             setFailure(

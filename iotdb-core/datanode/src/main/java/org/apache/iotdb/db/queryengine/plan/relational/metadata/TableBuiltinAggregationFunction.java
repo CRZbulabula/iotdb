@@ -19,17 +19,20 @@
 
 package org.apache.iotdb.db.queryengine.plan.relational.metadata;
 
-import com.google.common.collect.ImmutableList;
+import org.apache.iotdb.common.rpc.thrift.TAggregationType;
+
+import org.apache.tsfile.read.common.type.RowType;
 import org.apache.tsfile.read.common.type.Type;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.apache.tsfile.read.common.type.DoubleType.DOUBLE;
-import static org.apache.tsfile.read.common.type.IntType.INT32;
+import static org.apache.tsfile.read.common.type.LongType.INT64;
 
 public enum TableBuiltinAggregationFunction {
   SUM("sum"),
@@ -65,31 +68,25 @@ public enum TableBuiltinAggregationFunction {
 
   private static final Set<String> NATIVE_FUNCTION_NAMES =
       new HashSet<>(
-          Arrays.stream(org.apache.iotdb.commons.udf.builtin.BuiltinAggregationFunction.values())
-              .map(org.apache.iotdb.commons.udf.builtin.BuiltinAggregationFunction::getFunctionName)
+          Arrays.stream(TableBuiltinAggregationFunction.values())
+              .map(TableBuiltinAggregationFunction::getFunctionName)
               .collect(Collectors.toList()));
 
   public static Set<String> getNativeFunctionNames() {
     return NATIVE_FUNCTION_NAMES;
   }
 
-  /**
-   * @return if the Aggregation can use statistics to optimize
-   */
-  public static boolean canUseStatistics(String name) {
+  public static Type getIntermediateType(String name, List<Type> originalArgumentTypes) {
     final String functionName = name.toLowerCase();
     switch (functionName) {
-      case "sum":
       case "count":
+        return INT64;
+      case "sum":
+        return DOUBLE;
       case "avg":
-      case "extreme":
-      case "max":
-      case "min":
       case "first":
-      case "last":
-      case "time_duration":
-        return true;
       case "first_by":
+      case "last":
       case "last_by":
       case "mode":
       case "max_by":
@@ -100,17 +97,22 @@ public enum TableBuiltinAggregationFunction {
       case "variance":
       case "var_pop":
       case "var_samp":
-        return false;
+        return RowType.anonymous(Collections.emptyList());
+      case "extreme":
+      case "max":
+      case "min":
+        return originalArgumentTypes.get(0);
       default:
         throw new IllegalArgumentException("Invalid Aggregation function: " + name);
     }
   }
 
-  public static List<Type> getIntermediateTypes(String name, Type originalType) {
-    if (AVG.functionName.equalsIgnoreCase(name)) {
-      return ImmutableList.of(DOUBLE, INT32);
+  public static TAggregationType getAggregationTypeByFuncName(String funcName) {
+    if (NATIVE_FUNCTION_NAMES.contains(funcName)) {
+      return TAggregationType.valueOf(funcName.toUpperCase());
     } else {
-      return ImmutableList.of(originalType);
+      // fallback to UDAF if no enum found
+      return TAggregationType.UDAF;
     }
   }
 }

@@ -33,6 +33,7 @@ import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.DeleteDataNo
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertRowNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertRowsNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertTabletNode;
+import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.RelationalDeleteDataNode;
 import org.apache.iotdb.db.service.metrics.WritingMetrics;
 import org.apache.iotdb.db.storageengine.StorageEngine;
 import org.apache.iotdb.db.storageengine.dataregion.DataRegion;
@@ -151,12 +152,12 @@ public class WALNode implements IWALNode {
 
   @Override
   public WALFlushListener log(
-      long memTableId, InsertTabletNode insertTabletNode, int start, int end) {
+      long memTableId, InsertTabletNode insertTabletNode, List<int[]> rangeList) {
     logger.debug(
         "WAL node-{} logs insertTabletNode, the search index is {}.",
         identifier,
         insertTabletNode.getSearchIndex());
-    WALEntry walEntry = new WALInfoEntry(memTableId, insertTabletNode, start, end);
+    WALEntry walEntry = new WALInfoEntry(memTableId, insertTabletNode, rangeList);
     return log(walEntry);
   }
 
@@ -166,6 +167,18 @@ public class WALNode implements IWALNode {
         "WAL node-{} logs deleteDataNode, the search index is {}.",
         identifier,
         deleteDataNode.getSearchIndex());
+    WALEntry walEntry = new WALInfoEntry(memTableId, deleteDataNode);
+    return log(walEntry);
+  }
+
+  @Override
+  public WALFlushListener log(long memTableId, RelationalDeleteDataNode deleteDataNode) {
+    if (logger.isDebugEnabled()) {
+      logger.debug(
+          "WAL node-{} logs relationalDeleteDataNode, the search index is {}.",
+          identifier,
+          deleteDataNode.getSearchIndex());
+    }
     WALEntry walEntry = new WALInfoEntry(memTableId, deleteDataNode);
     return log(walEntry);
   }

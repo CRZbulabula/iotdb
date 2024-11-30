@@ -91,6 +91,7 @@ public enum Metric {
   COMPACTION_TASK_SELECTION("compaction_task_selection"),
   COMPACTION_TASK_SELECTION_COST("compaction_task_selection_cost"),
   COMPACTION_TASK_SELECTED_FILE("compaction_task_selected_file"),
+  COMPACTION_TASK_SELECTED_FILE_SIZE("compaction_task_selected_file_size"),
   // schema engine related
   MEM("mem"),
   CACHE("cache"),
@@ -106,6 +107,7 @@ public enum Metric {
   SERIES_SCAN_COST("series_scan_cost"),
   MEMORY_USAGE_MONITOR("memory_usage_monitor"),
   METRIC_LOAD_TIME_SERIES_METADATA("metric_load_time_series_metadata"),
+  METRIC_QUERY_CACHE("metric_query_cache"),
   QUERY_METADATA_COST("query_metadata_cost"),
   DISPATCHER("dispatcher"),
   QUERY_EXECUTION("query_execution"),
@@ -119,6 +121,8 @@ public enum Metric {
   FRAGMENT_INSTANCE_MANAGER("fragment_instance_manager"),
   MEMORY_POOL("memory_pool"),
   LOCAL_EXECUTION_PLANNER("local_execution_planner"),
+  QUERY_DISK_READ("query_disk_read"),
+
   // file related
   FILE_SIZE("file_size"),
   FILE_COUNT("file_count"),
@@ -152,6 +156,7 @@ public enum Metric {
   PIPE_MEM("pipe_mem"),
   PIPE_PINNED_MEMTABLE_COUNT("pipe_pinned_memtable_count"),
   PIPE_LINKED_TSFILE_COUNT("pipe_linked_tsfile_count"),
+  PIPE_PHANTOM_REFERENCE_COUNT("pipe_phantom_reference_count"),
   PIPE_ASYNC_CONNECTOR_RETRY_EVENT_QUEUE_SIZE("pipe_async_connector_retry_event_queue_size"),
   PIPE_EVENT_COMMIT_QUEUE_SIZE("pipe_event_commit_queue_size"),
   PIPE_PROCEDURE("pipe_procedure"),

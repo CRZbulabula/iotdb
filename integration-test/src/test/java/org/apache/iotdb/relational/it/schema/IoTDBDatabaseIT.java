@@ -40,6 +40,7 @@ import java.sql.Statement;
 import java.util.Collections;
 
 import static org.apache.iotdb.db.queryengine.common.header.ColumnHeaderConstant.showDBColumnHeaders;
+import static org.apache.iotdb.db.queryengine.common.header.ColumnHeaderConstant.showDBDetailsColumnHeaders;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -66,7 +67,7 @@ public class IoTDBDatabaseIT {
         final Statement statement = connection.createStatement()) {
 
       // create
-      statement.execute("create database test");
+      statement.execute("create database test with (ttl='INF')");
 
       // create duplicated database without IF NOT EXISTS
       try {
@@ -80,9 +81,11 @@ public class IoTDBDatabaseIT {
       statement.execute("create database IF NOT EXISTS test");
 
       String[] databaseNames = new String[] {"test"};
+      String[] TTLs = new String[] {"INF"};
       int[] schemaReplicaFactors = new int[] {1};
       int[] dataReplicaFactors = new int[] {1};
       int[] timePartitionInterval = new int[] {604800000};
+      String[] model = new String[] {"TABLE"};
 
       // show
       try (final ResultSet resultSet = statement.executeQuery("SHOW DATABASES")) {
@@ -94,9 +97,31 @@ public class IoTDBDatabaseIT {
         }
         while (resultSet.next()) {
           assertEquals(databaseNames[cnt], resultSet.getString(1));
-          assertEquals(schemaReplicaFactors[cnt], resultSet.getInt(2));
-          assertEquals(dataReplicaFactors[cnt], resultSet.getInt(3));
-          assertEquals(timePartitionInterval[cnt], resultSet.getLong(4));
+          assertEquals(TTLs[cnt], resultSet.getString(2));
+          assertEquals(schemaReplicaFactors[cnt], resultSet.getInt(3));
+          assertEquals(dataReplicaFactors[cnt], resultSet.getInt(4));
+          assertEquals(timePartitionInterval[cnt], resultSet.getLong(5));
+          cnt++;
+        }
+        assertEquals(databaseNames.length, cnt);
+      }
+
+      // show
+      try (final ResultSet resultSet = statement.executeQuery("SHOW DATABASES DETAILS")) {
+        int cnt = 0;
+        final ResultSetMetaData metaData = resultSet.getMetaData();
+        assertEquals(showDBDetailsColumnHeaders.size(), metaData.getColumnCount());
+        for (int i = 0; i < showDBDetailsColumnHeaders.size(); i++) {
+          assertEquals(
+              showDBDetailsColumnHeaders.get(i).getColumnName(), metaData.getColumnName(i + 1));
+        }
+        while (resultSet.next()) {
+          assertEquals(databaseNames[cnt], resultSet.getString(1));
+          assertEquals(TTLs[cnt], resultSet.getString(2));
+          assertEquals(schemaReplicaFactors[cnt], resultSet.getInt(3));
+          assertEquals(dataReplicaFactors[cnt], resultSet.getInt(4));
+          assertEquals(timePartitionInterval[cnt], resultSet.getLong(5));
+          assertEquals(model[cnt], resultSet.getString(6));
           cnt++;
         }
         assertEquals(databaseNames.length, cnt);
@@ -132,10 +157,9 @@ public class IoTDBDatabaseIT {
 
       // Test create database with properties
       statement.execute(
-          "create database test_prop with (schema_replication_factor=DEFAULT, data_replication_factor=3, time_partition_interval=100000)");
-
+          "create database test_prop with (ttl=300, schema_region_group_num=DEFAULT, time_partition_interval=100000)");
       databaseNames = new String[] {"test_prop"};
-      dataReplicaFactors = new int[] {3};
+      TTLs = new String[] {"300"};
       timePartitionInterval = new int[] {100000};
 
       // show
@@ -148,9 +172,10 @@ public class IoTDBDatabaseIT {
         }
         while (resultSet.next()) {
           assertEquals(databaseNames[cnt], resultSet.getString(1));
-          assertEquals(schemaReplicaFactors[cnt], resultSet.getInt(2));
-          assertEquals(dataReplicaFactors[cnt], resultSet.getInt(3));
-          assertEquals(timePartitionInterval[cnt], resultSet.getLong(4));
+          assertEquals(TTLs[cnt], resultSet.getString(2));
+          assertEquals(schemaReplicaFactors[cnt], resultSet.getInt(3));
+          assertEquals(dataReplicaFactors[cnt], resultSet.getInt(4));
+          assertEquals(timePartitionInterval[cnt], resultSet.getLong(5));
           cnt++;
         }
         assertEquals(databaseNames.length, cnt);
@@ -225,10 +250,19 @@ public class IoTDBDatabaseIT {
         final Statement statement = connection.createStatement()) {
       try {
         statement.execute("create database \"````x.\"");
-        fail("create database test shouldn't succeed because it contains '.'");
+        fail("create database ````x. shouldn't succeed because it contains '.'");
       } catch (final SQLException e) {
         assertEquals(
-            "509: ````x. is not a legal path, because The database name shall not contain '.'",
+            "509: ````x. is not a legal path, because the database name can only contain english or chinese characters, numbers, backticks and underscores.",
+            e.getMessage());
+      }
+
+      try {
+        statement.execute("create database \"#\"");
+        fail("create database # shouldn't succeed because it contains illegal character '#'");
+      } catch (final SQLException e) {
+        assertEquals(
+            "509: # is not a legal path, because the database name can only contain english or chinese characters, numbers, backticks and underscores.",
             e.getMessage());
       }
 

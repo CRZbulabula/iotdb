@@ -27,6 +27,8 @@ import org.apache.iotdb.commons.schema.filter.impl.values.PreciseFilter;
 import org.apache.iotdb.db.schemaengine.schemaregion.ISchemaRegion;
 import org.apache.iotdb.db.schemaengine.schemaregion.read.resp.info.IDeviceSchemaInfo;
 
+import org.apache.tsfile.common.conf.TSFileConfig;
+import org.apache.tsfile.utils.Binary;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -36,9 +38,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
-
-import static org.apache.tsfile.utils.RegexUtils.parseLikePatternToRegex;
 
 public class SchemaRegionTableDeviceTest extends AbstractSchemaRegionTest {
 
@@ -95,24 +96,36 @@ public class SchemaRegionTableDeviceTest extends AbstractSchemaRegionTest {
             schemaRegion,
             tableName,
             Collections.singletonList(new String[] {"hebei", "p_1", "d_0"}));
-    Assert.assertEquals("new", deviceSchemaInfoList.get(0).getAttributeValue("type"));
-    Assert.assertEquals("monthly", deviceSchemaInfoList.get(0).getAttributeValue("cycle"));
+    Assert.assertEquals(
+        new Binary("new", TSFileConfig.STRING_CHARSET),
+        deviceSchemaInfoList.get(0).getAttributeValue("type"));
+    Assert.assertEquals(
+        new Binary("monthly", TSFileConfig.STRING_CHARSET),
+        deviceSchemaInfoList.get(0).getAttributeValue("cycle"));
 
     deviceSchemaInfoList =
         SchemaRegionTestUtil.getTableDevice(
             schemaRegion,
             tableName,
             Collections.singletonList(new String[] {"hebei", "p_1", "d_1"}));
-    Assert.assertEquals("old", deviceSchemaInfoList.get(0).getAttributeValue("type"));
-    Assert.assertEquals("monthly", deviceSchemaInfoList.get(0).getAttributeValue("cycle"));
+    Assert.assertEquals(
+        new Binary("old", TSFileConfig.STRING_CHARSET),
+        deviceSchemaInfoList.get(0).getAttributeValue("type"));
+    Assert.assertEquals(
+        new Binary("monthly", TSFileConfig.STRING_CHARSET),
+        deviceSchemaInfoList.get(0).getAttributeValue("cycle"));
 
     deviceSchemaInfoList =
         SchemaRegionTestUtil.getTableDevice(
             schemaRegion,
             tableName,
             Collections.singletonList(new String[] {"shandong", "p_1", "d_1"}));
-    Assert.assertEquals("old", deviceSchemaInfoList.get(0).getAttributeValue("type"));
-    Assert.assertEquals("daily", deviceSchemaInfoList.get(0).getAttributeValue("cycle"));
+    Assert.assertEquals(
+        new Binary("old", TSFileConfig.STRING_CHARSET),
+        deviceSchemaInfoList.get(0).getAttributeValue("type"));
+    Assert.assertEquals(
+        new Binary("daily", TSFileConfig.STRING_CHARSET),
+        deviceSchemaInfoList.get(0).getAttributeValue("cycle"));
   }
 
   @Test
@@ -170,7 +183,7 @@ public class SchemaRegionTableDeviceTest extends AbstractSchemaRegionTest {
             3,
             Arrays.asList(
                 new IdFilter(new InFilter(new HashSet<>(Arrays.asList("d_0", "d_1"))), 2),
-                new IdFilter(new LikeFilter(parseLikePatternToRegex("__1")), 2)));
+                new IdFilter(new LikeFilter("__1", Optional.empty()), 2)));
 
     Assert.assertEquals(2, deviceSchemaInfoList.size());
   }
@@ -246,8 +259,7 @@ public class SchemaRegionTableDeviceTest extends AbstractSchemaRegionTest {
             schemaRegion,
             tableName,
             3,
-            Collections.singletonList(
-                new IdFilter(new LikeFilter(parseLikePatternToRegex("%")), 2)));
+            Collections.singletonList(new IdFilter(new LikeFilter("%", Optional.empty()), 2)));
 
     Assert.assertEquals(2, deviceSchemaInfoList.size());
   }

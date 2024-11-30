@@ -24,7 +24,6 @@ import org.apache.iotdb.commons.exception.IllegalPathException;
 import org.apache.iotdb.commons.path.PatternTreeMap;
 import org.apache.iotdb.db.conf.IoTDBDescriptor;
 import org.apache.iotdb.db.exception.WriteProcessException;
-import org.apache.iotdb.db.queryengine.plan.analyze.cache.schema.DataNodeTTLCache;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.exception.CompactionLastTimeCheckFailedException;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.exception.IllegalCompactionTaskSummaryException;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.performer.ICrossCompactionPerformer;
@@ -40,7 +39,7 @@ import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.utils.wri
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.utils.writer.FastCrossCompactionWriter;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.utils.writer.FastInnerCompactionWriter;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.schedule.CompactionTaskManager;
-import org.apache.iotdb.db.storageengine.dataregion.modification.Modification;
+import org.apache.iotdb.db.storageengine.dataregion.modification.ModEntry;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.TsFileResource;
 import org.apache.iotdb.db.utils.datastructure.PatternTreeMapFactory;
 
@@ -87,7 +86,7 @@ public class FastCompactionPerformer
   private List<TsFileResource> targetFiles;
 
   // tsFile name -> modifications
-  private Map<String, PatternTreeMap<Modification, PatternTreeMapFactory.ModsSerializer>>
+  private Map<String, PatternTreeMap<ModEntry, PatternTreeMapFactory.ModsSerializer>>
       modificationCache = new ConcurrentHashMap<>();
 
   private final boolean isCrossCompaction;
@@ -129,32 +128,40 @@ public class FastCompactionPerformer
         checkThreadInterrupted();
         Pair<IDeviceID, Boolean> deviceInfo = deviceIterator.nextDevice();
         IDeviceID device = deviceInfo.left;
+        boolean isAligned = deviceInfo.right;
         // sort the resources by the start time of current device from old to new, and remove
         // resource that does not contain the current device. Notice: when the level of time index
         // is file, there will be a false positive judgment problem, that is, the device does not
         // actually exist but the judgment return device being existed.
         sortedSourceFiles.addAll(seqFiles);
         sortedSourceFiles.addAll(unseqFiles);
+        boolean isTreeModel = !isAligned || device.getTableName().startsWith("root.");
+        long ttl = deviceIterator.getTTLForCurrentDevice();
         sortedSourceFiles.removeIf(
-            x ->
-                x.definitelyNotContains(device)
-                    || !x.isDeviceAlive(
-                        device,
-                        DataNodeTTLCache.getInstance()
-                            // TODO: remove deviceId conversion
-                            .getTTL(device)));
+            x -> x.definitelyNotContains(device) || !x.isDeviceAlive(device, ttl));
         sortedSourceFiles.sort(Comparator.comparingLong(x -> x.getStartTime(device)));
+        if (ttl != Long.MAX_VALUE) {
+          ModEntry ttlDeletion =
+              CompactionUtils.convertTtlToDeletion(
+                  device, deviceIterator.getTimeLowerBoundForCurrentDevice());
+          for (TsFileResource sourceFile : sortedSourceFiles) {
+            modificationCache
+                .computeIfAbsent(
+                    sourceFile.getTsFile().getName(),
+                    k -> PatternTreeMapFactory.getModsPatternTreeMap())
+                .append(ttlDeletion.keyOfPatternTree(), ttlDeletion);
+          }
+        }
 
         if (sortedSourceFiles.isEmpty()) {
           // device is out of dated in all source files
           continue;
         }
 
-        boolean isAligned = deviceInfo.right;
         compactionWriter.startChunkGroup(device, isAligned);
 
         if (isAligned) {
-          compactAlignedSeries(device, deviceIterator, compactionWriter);
+          compactAlignedSeries(device, deviceIterator, compactionWriter, isTreeModel);
         } else {
           compactNonAlignedSeries(device, deviceIterator, compactionWriter);
         }
@@ -180,7 +187,8 @@ public class FastCompactionPerformer
   private void compactAlignedSeries(
       IDeviceID deviceId,
       MultiTsFileDeviceIterator deviceIterator,
-      AbstractCompactionWriter fastCrossCompactionWriter)
+      AbstractCompactionWriter fastCrossCompactionWriter,
+      boolean ignoreAllNullRows)
       throws PageException, IOException, WriteProcessException, IllegalPathException {
     // measurement -> tsfile resource -> timeseries metadata <startOffset, endOffset>, including
     // empty value chunk metadata
@@ -192,7 +200,7 @@ public class FastCompactionPerformer
     // end offset of each timeseries metadata, in order to facilitate the reading of chunkMetadata
     // directly by this offset later. Instead of deserializing chunk metadata later, we need to
     // deserialize chunk metadata here to get the schemas of all value measurements, because we
-    // should get schemas of all value measurement to startMeasruement() and compaction process is
+    // should get schemas of all value measurement to startMeasurement() and compaction process is
     // to read a batch of overlapped files each time, and we cannot make sure if the first batch of
     // overlapped tsfiles contain all the value measurements.
     for (Map.Entry<String, Pair<MeasurementSchema, Map<TsFileResource, Pair<Long, Long>>>> entry :
@@ -210,7 +218,8 @@ public class FastCompactionPerformer
             sortedSourceFiles,
             measurementSchemas,
             deviceId,
-            taskSummary)
+            taskSummary,
+            ignoreAllNullRows)
         .call();
     subTaskSummary.increase(taskSummary);
   }
@@ -329,16 +338,22 @@ public class FastCompactionPerformer
 
   private void readModification(List<TsFileResource> resources) {
     for (TsFileResource resource : resources) {
-      if (resource.getModFile() == null || !resource.getModFile().exists()) {
+      if (resource.getTotalModSizeInByte() == 0) {
         continue;
       }
       // read mods
-      PatternTreeMap<Modification, PatternTreeMapFactory.ModsSerializer> modifications =
+      PatternTreeMap<ModEntry, PatternTreeMapFactory.ModsSerializer> modifications =
           PatternTreeMapFactory.getModsPatternTreeMap();
-      for (Modification modification : resource.getModFile().getModificationsIter()) {
-        modifications.append(modification.getPath(), modification);
+      for (ModEntry modification : resource.getAllModEntries()) {
+        modifications.append(modification.keyOfPatternTree(), modification);
       }
       modificationCache.put(resource.getTsFile().getName(), modifications);
     }
+  }
+
+  public String getDatabaseName() {
+    return !seqFiles.isEmpty()
+        ? seqFiles.get(0).getDatabaseName()
+        : unseqFiles.get(0).getDatabaseName();
   }
 }

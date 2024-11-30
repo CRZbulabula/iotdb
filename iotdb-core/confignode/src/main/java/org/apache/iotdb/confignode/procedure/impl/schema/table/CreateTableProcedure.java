@@ -28,10 +28,11 @@ import org.apache.iotdb.commons.exception.MetadataException;
 import org.apache.iotdb.commons.path.PartialPath;
 import org.apache.iotdb.commons.path.PathPatternTree;
 import org.apache.iotdb.commons.schema.table.TsTable;
-import org.apache.iotdb.confignode.client.CnToDnRequestType;
+import org.apache.iotdb.confignode.client.async.CnToDnAsyncRequestType;
 import org.apache.iotdb.confignode.consensus.request.write.table.CommitCreateTablePlan;
 import org.apache.iotdb.confignode.consensus.request.write.table.PreCreateTablePlan;
 import org.apache.iotdb.confignode.consensus.request.write.table.RollbackCreateTablePlan;
+import org.apache.iotdb.confignode.exception.DatabaseNotExistsException;
 import org.apache.iotdb.confignode.procedure.env.ConfigNodeProcedureEnv;
 import org.apache.iotdb.confignode.procedure.exception.ProcedureException;
 import org.apache.iotdb.confignode.procedure.exception.ProcedureSuspendedException;
@@ -41,7 +42,7 @@ import org.apache.iotdb.confignode.procedure.impl.schema.DataNodeRegionTaskExecu
 import org.apache.iotdb.confignode.procedure.impl.schema.SchemaUtils;
 import org.apache.iotdb.confignode.procedure.state.schema.CreateTableState;
 import org.apache.iotdb.confignode.procedure.store.ProcedureType;
-import org.apache.iotdb.consensus.exception.ConsensusException;
+import org.apache.iotdb.confignode.rpc.thrift.TDatabaseSchema;
 import org.apache.iotdb.mpp.rpc.thrift.TCheckTimeSeriesExistenceReq;
 import org.apache.iotdb.mpp.rpc.thrift.TCheckTimeSeriesExistenceResp;
 import org.apache.iotdb.rpc.TSStatusCode;
@@ -129,32 +130,34 @@ public class CreateTableProcedure
   }
 
   private void checkTableExistence(final ConfigNodeProcedureEnv env) {
-    if (env.getConfigManager()
-        .getClusterSchemaManager()
-        .getTableIfExists(database, table.getTableName())
-        .isPresent()) {
-      setFailure(
-          new ProcedureException(
-              new IoTDBException(
-                  String.format(
-                      "Table '%s.%s' already exists.",
-                      database.substring(ROOT.length() + 1), table.getTableName()),
-                  TABLE_ALREADY_EXISTS.getStatusCode())));
-    } else {
-      setNextState(CreateTableState.PRE_CREATE);
+    try {
+      if (env.getConfigManager()
+          .getClusterSchemaManager()
+          .getTableIfExists(database, table.getTableName())
+          .isPresent()) {
+        setFailure(
+            new ProcedureException(
+                new IoTDBException(
+                    String.format(
+                        "Table '%s.%s' already exists.",
+                        database.substring(ROOT.length() + 1), table.getTableName()),
+                    TABLE_ALREADY_EXISTS.getStatusCode())));
+      } else {
+        final TDatabaseSchema schema =
+            env.getConfigManager().getClusterSchemaManager().getDatabaseSchemaByName(database);
+        if (schema.isSetTTL() && !table.getPropValue(TsTable.TTL_PROPERTY).isPresent()) {
+          table.addProp(TsTable.TTL_PROPERTY, String.valueOf(schema.getTTL()));
+        }
+        setNextState(CreateTableState.PRE_CREATE);
+      }
+    } catch (final MetadataException | DatabaseNotExistsException e) {
+      setFailure(new ProcedureException(e));
     }
   }
 
   private void preCreateTable(final ConfigNodeProcedureEnv env) {
-    final PreCreateTablePlan plan = new PreCreateTablePlan(database, table);
-    TSStatus status;
-    try {
-      status = env.getConfigManager().getConsensusManager().write(plan);
-    } catch (final ConsensusException e) {
-      LOGGER.warn("Failed in the read API executing the consensus layer due to: ", e);
-      status = new TSStatus(TSStatusCode.EXECUTE_STATEMENT_ERROR.getStatusCode());
-      status.setMessage(e.getMessage());
-    }
+    final TSStatus status =
+        SchemaUtils.executeInConsensusLayer(new PreCreateTablePlan(database, table), env, LOGGER);
     if (status.getCode() == TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
       setNextState(CreateTableState.PRE_RELEASE);
     } else {
@@ -186,7 +189,7 @@ public class CreateTableProcedure
     final DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
     final PartialPath path;
     try {
-      path = new PartialPath(new String[] {ROOT, database, table.getTableName()});
+      path = new PartialPath(new String[] {ROOT, database.substring(5), table.getTableName()});
       patternTree.appendPathPattern(path);
       patternTree.appendPathPattern(path.concatAsMeasurementPath(MULTI_LEVEL_PATH_WILDCARD));
       patternTree.serialize(dataOutputStream);
@@ -198,6 +201,11 @@ public class CreateTableProcedure
     final Map<TConsensusGroupId, TRegionReplicaSet> relatedSchemaRegionGroup =
         env.getConfigManager().getRelatedSchemaRegionGroup(patternTree);
 
+    if (relatedSchemaRegionGroup.isEmpty()) {
+      setNextState(CreateTableState.COMMIT_CREATE);
+      return;
+    }
+
     final List<TCheckTimeSeriesExistenceResp> respList = new ArrayList<>();
     DataNodeRegionTaskExecutor<TCheckTimeSeriesExistenceReq, TCheckTimeSeriesExistenceResp>
         regionTask =
@@ -206,7 +214,7 @@ public class CreateTableProcedure
                 env,
                 relatedSchemaRegionGroup,
                 false,
-                CnToDnRequestType.CHECK_TIMESERIES_EXISTENCE,
+                CnToDnAsyncRequestType.CHECK_TIMESERIES_EXISTENCE,
                 ((dataNodeLocation, consensusGroupIdList) ->
                     new TCheckTimeSeriesExistenceReq(patternTreeBytes, consensusGroupIdList))) {
 
@@ -271,15 +279,9 @@ public class CreateTableProcedure
   }
 
   private void commitCreateTable(final ConfigNodeProcedureEnv env) {
-    final CommitCreateTablePlan plan = new CommitCreateTablePlan(database, table.getTableName());
-    TSStatus status;
-    try {
-      status = env.getConfigManager().getConsensusManager().write(plan);
-    } catch (final ConsensusException e) {
-      LOGGER.warn("Failed in the read API executing the consensus layer due to: ", e);
-      status = new TSStatus(TSStatusCode.EXECUTE_STATEMENT_ERROR.getStatusCode());
-      status.setMessage(e.getMessage());
-    }
+    final TSStatus status =
+        SchemaUtils.executeInConsensusLayer(
+            new CommitCreateTablePlan(database, table.getTableName()), env, LOGGER);
     if (status.getCode() == TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
       setNextState(CreateTableState.COMMIT_RELEASE);
     } else {
@@ -297,8 +299,12 @@ public class CreateTableProcedure
           database,
           table.getTableName(),
           failedResults);
-      // TODO: Handle commit failure
     }
+  }
+
+  @Override
+  protected boolean isRollbackSupported(final CreateTableState state) {
+    return true;
   }
 
   @Override
@@ -323,16 +329,9 @@ public class CreateTableProcedure
   }
 
   private void rollbackCreate(final ConfigNodeProcedureEnv env) {
-    final RollbackCreateTablePlan plan =
-        new RollbackCreateTablePlan(database, table.getTableName());
-    TSStatus status;
-    try {
-      status = env.getConfigManager().getConsensusManager().write(plan);
-    } catch (final ConsensusException e) {
-      LOGGER.warn("Failed in the read API executing the consensus layer due to: ", e);
-      status = new TSStatus(TSStatusCode.EXECUTE_STATEMENT_ERROR.getStatusCode());
-      status.setMessage(e.getMessage());
-    }
+    final TSStatus status =
+        SchemaUtils.executeInConsensusLayer(
+            new RollbackCreateTablePlan(database, table.getTableName()), env, LOGGER);
     if (status.getCode() != TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
       LOGGER.warn("Failed to rollback table creation {}.{}", database, table.getTableName());
       setFailure(new ProcedureException(new IoTDBException(status.getMessage(), status.getCode())));

@@ -33,8 +33,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
@@ -68,6 +71,21 @@ public class DataPartition extends Partition {
   public Map<String, Map<TSeriesPartitionSlot, Map<TTimePartitionSlot, List<TRegionReplicaSet>>>>
       getDataPartitionMap() {
     return dataPartitionMap;
+  }
+
+  public Set<TRegionReplicaSet> getAllReplicaSets() {
+    Set<TRegionReplicaSet> replicaSets = new HashSet<>();
+    for (Entry<String, Map<TSeriesPartitionSlot, Map<TTimePartitionSlot, List<TRegionReplicaSet>>>>
+        dbEntry : dataPartitionMap.entrySet()) {
+      for (Entry<TSeriesPartitionSlot, Map<TTimePartitionSlot, List<TRegionReplicaSet>>>
+          seriesEntry : dbEntry.getValue().entrySet()) {
+        for (Entry<TTimePartitionSlot, List<TRegionReplicaSet>> timeSlotEntry :
+            seriesEntry.getValue().entrySet()) {
+          replicaSets.addAll(timeSlotEntry.getValue());
+        }
+      }
+    }
+    return replicaSets;
   }
 
   public void setDataPartitionMap(
@@ -231,7 +249,7 @@ public class DataPartition extends Partition {
       throw new RuntimeException(
           "Database "
               + databaseName
-              + "not exists and failed to create automatically because enable_auto_create_schema is FALSE.");
+              + " not exists and failed to create automatically because enable_auto_create_schema is FALSE.");
     }
     List<TRegionReplicaSet> regions =
         databasePartitionMap.get(seriesPartitionSlot).get(timePartitionSlot);

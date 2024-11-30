@@ -196,8 +196,8 @@ struct TSchemaFetchResponse {
   1: required binary serializedSchemaTree
 }
 
-struct TDisableDataNodeReq {
-  1: required common.TDataNodeLocation dataNodeLocation
+struct TCleanDataNodeCacheReq {
+  1: required list<common.TDataNodeLocation> dataNodeLocations
 }
 
 struct TCreateFunctionInstanceReq {
@@ -208,6 +208,7 @@ struct TCreateFunctionInstanceReq {
 struct TDropFunctionInstanceReq {
   1: required string functionName
   2: required bool needToDeleteJar
+  3: optional common.Model model
 }
 
 struct TCreateTriggerInstanceReq {
@@ -330,6 +331,49 @@ struct TUpdateTableReq {
   2: required binary tableInfo
 }
 
+struct TInvalidateTableCacheReq {
+  1: required string database
+  2: required string tableName
+}
+
+struct TInvalidateColumnCacheReq {
+  1: required string database,
+  2: required string tableName,
+  3: required string columnName,
+  4: required bool isAttributeColumn
+}
+
+struct TDeleteColumnDataReq {
+  1: required list<common.TConsensusGroupId> regionIdList
+  2: required string tableName,
+  3: required string columnName,
+  4: required bool isAttributeColumn
+}
+
+struct TDeleteDataOrDevicesForDropTableReq {
+  1: required list<common.TConsensusGroupId> regionIdList
+  2: required string tableName
+}
+
+struct TTableDeviceDeletionWithPatternAndFilterReq {
+  1: required list<common.TConsensusGroupId> schemaRegionIdList
+  2: required string tableName
+  3: required binary patternInfo
+  4: required binary filterInfo
+}
+
+struct TTableDeviceDeletionWithPatternOrModReq {
+  1: required list<common.TConsensusGroupId> regionIdList
+  2: required string tableName
+  3: required binary patternOrModInfo
+}
+
+struct TTableDeviceInvalidateCacheReq {
+  1: required string database
+  2: required string tableName
+  3: required binary patternInfo
+}
+
 struct TTsFilePieceReq {
     1: required binary body
     2: required string uuid
@@ -341,6 +385,16 @@ struct TLoadCommandReq {
     2: required string uuid
     3: optional bool isGeneratedByPipe
     4: optional binary progressIndex
+}
+
+struct TAttributeUpdateReq {
+  1: required map<i32, TSchemaRegionAttributeInfo> attributeUpdateMap
+}
+
+struct TSchemaRegionAttributeInfo {
+  1: required i64 version
+  2: required string database
+  3: required binary body
 }
 
 struct TLoadResp {
@@ -625,6 +679,19 @@ struct TQueryStatistics {
   35: i64 alignedTimeSeriesMetadataModificationTime
   36: i64 nonAlignedTimeSeriesMetadataModificationCount
   37: i64 nonAlignedTimeSeriesMetadataModificationTime
+
+  38: i64 loadBloomFilterFromCacheCount
+  39: i64 loadBloomFilterFromDiskCount
+  40: i64 loadBloomFilterActualIOSize
+  41: i64 loadBloomFilterTime
+
+  42: i64 loadTimeSeriesMetadataFromCacheCount
+  43: i64 loadTimeSeriesMetadataFromDiskCount
+  44: i64 loadTimeSeriesMetadataActualIOSize
+
+  45: i64 loadChunkFromCacheCount
+  46: i64 loadChunkFromDiskCount
+  47: i64 loadChunkActualIOSize
 }
 
 
@@ -683,6 +750,8 @@ service IDataNodeRPCService {
 
   TLoadResp sendLoadCommand(TLoadCommandReq req);
 
+  common.TSStatus updateAttribute(TAttributeUpdateReq req);
+
 
   // -----------------------------------For Config Node-----------------------------------------------
 
@@ -706,6 +775,13 @@ service IDataNodeRPCService {
    * @param bool:isStorageGroup, string:fullPath
    */
   common.TSStatus invalidatePartitionCache(TInvalidateCacheReq req)
+
+  /**
+   * Config node will invalidate last cache.
+   *
+   * @param string:database(without root)
+   */
+  common.TSStatus invalidateLastCache(string database)
 
   /**
    * Config node will invalidate Schema Info cache.
@@ -767,15 +843,15 @@ service IDataNodeRPCService {
   TRegionMigrateResult getRegionMaintainResult(i64 taskId)
 
   /**
-   * Config node will disable the Data node, the Data node will not accept read/write request when disabled
+   * Config node will clean DataNode cache, the Data node will not accept read/write request when disabled
    * @param data node location
    */
-  common.TSStatus disableDataNode(TDisableDataNodeReq req)
+  common.TSStatus cleanDataNodeCache(TCleanDataNodeCacheReq req)
 
   /**
-   * Config node will stop the Data node.
+   * Config node will stop and clear the Data node.
    */
-  common.TSStatus stopDataNode()
+  common.TSStatus stopAndClearDataNode()
 
   /**
    * ConfigNode will ask DataNode for heartbeat in every few seconds.
@@ -882,7 +958,7 @@ service IDataNodeRPCService {
 
   common.TSStatus stopRepairData()
 
-  common.TSStatus clearCache()
+  common.TSStatus clearCache(set<i32> cacheClearOptions)
 
   common.TShowConfigurationResp showConfiguration()
 
@@ -1038,6 +1114,57 @@ service IDataNodeRPCService {
   */
   common.TSStatus updateTable(TUpdateTableReq req)
 
+  /**
+  * Delete data for drop table, this database is without "root"
+  */
+  common.TSStatus invalidateTableCache(TInvalidateTableCacheReq req)
+
+  /**
+  * Delete data for drop table
+  */
+  common.TSStatus deleteDataForDropTable(TDeleteDataOrDevicesForDropTableReq req)
+
+  /**
+  * Delete devices for drop table
+  */
+  common.TSStatus deleteDevicesForDropTable(TDeleteDataOrDevicesForDropTableReq req)
+
+  /**
+   * Invalidate cache for drop column
+   */
+  common.TSStatus invalidateColumnCache(TInvalidateColumnCacheReq req)
+
+  /**
+   * Delete column data for drop column
+   */
+  common.TSStatus deleteColumnData(TDeleteColumnDataReq req)
+
+
+  /**
+   * Construct table device black list
+   */
+  common.TSStatus constructTableDeviceBlackList(TTableDeviceDeletionWithPatternAndFilterReq req)
+
+  /**
+   * Rollback table device black list
+   */
+  common.TSStatus rollbackTableDeviceBlackList(TTableDeviceDeletionWithPatternOrModReq req)
+
+  /**
+   * Delete data for table devices
+   */
+  common.TSStatus invalidateMatchedTableDeviceCache(TTableDeviceInvalidateCacheReq req)
+
+  /**
+   * Delete data for table devices
+   */
+  common.TSStatus deleteDataForTableDevice(TTableDeviceDeletionWithPatternOrModReq req)
+
+  /**
+   * Delete table devices in black list
+   */
+  common.TSStatus deleteTableDeviceInBlackList(TTableDeviceDeletionWithPatternOrModReq req)
+
   common.TTestConnectionResp submitTestConnectionTask(common.TNodeLocations nodeLocations)
 
   /** Empty rpc, only for connection test */
@@ -1057,17 +1184,4 @@ service MPPDataExchangeService {
 
   /** Empty rpc, only for connection test */
   common.TSStatus testConnectionEmptyRPC()
-}
-
-service IAINodeInternalRPCService{
- /**
-  * Fecth the data of the specified time series
-  */
-  TFetchTimeseriesResp fetchTimeseries(TFetchTimeseriesReq req)
-
-  /**
-  * Fetch rest data for a specified fetchTimeseries
-  */
-  TFetchMoreDataResp fetchMoreData(TFetchMoreDataReq req)
-
 }

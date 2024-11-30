@@ -22,11 +22,11 @@ package org.apache.iotdb.db.storageengine.dataregion.compaction.execute.performe
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.utils.CompactionUtils;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.utils.writer.AbstractCompactionWriter;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.utils.writer.RepairUnsortedFileCompactionWriter;
+import org.apache.iotdb.db.storageengine.dataregion.tsfile.TsFileRepairStatus;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.TsFileResource;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.timeindex.ArrayDeviceTimeIndex;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.timeindex.ITimeIndex;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.List;
@@ -34,11 +34,8 @@ import java.util.List;
 /** Used for fixing files which contains internal unsorted data */
 public class RepairUnsortedFileCompactionPerformer extends ReadPointCompactionPerformer {
 
-  private final boolean rewriteFile;
-
-  public RepairUnsortedFileCompactionPerformer(boolean rewriteFile) {
+  public RepairUnsortedFileCompactionPerformer() {
     super();
-    this.rewriteFile = rewriteFile;
   }
 
   @Override
@@ -52,7 +49,8 @@ public class RepairUnsortedFileCompactionPerformer extends ReadPointCompactionPe
 
   @Override
   public void perform() throws Exception {
-    if (rewriteFile) {
+    TsFileResource resource = !seqFiles.isEmpty() ? seqFiles.get(0) : unseqFiles.get(0);
+    if (resource.getTsFileRepairStatus() == TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE) {
       super.perform();
     } else {
       prepareTargetFile();
@@ -69,10 +67,10 @@ public class RepairUnsortedFileCompactionPerformer extends ReadPointCompactionPe
     } else {
       targetFile.setTimeIndex(CompactionUtils.buildDeviceTimeIndex(seqSourceFile));
     }
-    if (seqSourceFile.modFileExists()) {
+    if (seqSourceFile.anyModFileExists()) {
       Files.createLink(
-          new File(seqSourceFile.getCompactionModFile().getFilePath()).toPath(),
-          new File(seqSourceFile.getModFile().getFilePath()).toPath());
+          seqSourceFile.getCompactionModFile().getFile().toPath(),
+          seqSourceFile.getExclusiveModFile().getFile().toPath());
     }
   }
 

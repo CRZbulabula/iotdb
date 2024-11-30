@@ -49,9 +49,9 @@ import org.apache.iotdb.confignode.rpc.thrift.TAINodeRestartReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAINodeRestartResp;
 import org.apache.iotdb.confignode.rpc.thrift.TAddConsensusGroupReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAlterLogicalViewReq;
+import org.apache.iotdb.confignode.rpc.thrift.TAlterOrDropTableReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAlterPipeReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAlterSchemaTemplateReq;
-import org.apache.iotdb.confignode.rpc.thrift.TAlterTableReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAuthizedPatternTreeResp;
 import org.apache.iotdb.confignode.rpc.thrift.TAuthorizerReq;
 import org.apache.iotdb.confignode.rpc.thrift.TAuthorizerResp;
@@ -88,7 +88,10 @@ import org.apache.iotdb.confignode.rpc.thrift.TDeactivateSchemaTemplateReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDeleteDatabaseReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDeleteDatabasesReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDeleteLogicalViewReq;
+import org.apache.iotdb.confignode.rpc.thrift.TDeleteTableDeviceReq;
+import org.apache.iotdb.confignode.rpc.thrift.TDeleteTableDeviceResp;
 import org.apache.iotdb.confignode.rpc.thrift.TDeleteTimeSeriesReq;
+import org.apache.iotdb.confignode.rpc.thrift.TDescTableResp;
 import org.apache.iotdb.confignode.rpc.thrift.TDropCQReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropFunctionReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropModelReq;
@@ -96,6 +99,7 @@ import org.apache.iotdb.confignode.rpc.thrift.TDropPipePluginReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropPipeReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropTopicReq;
 import org.apache.iotdb.confignode.rpc.thrift.TDropTriggerReq;
+import org.apache.iotdb.confignode.rpc.thrift.TFetchTableResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetAllPipeInfoResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetAllSubscriptionInfoResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetAllTemplatesResp;
@@ -120,6 +124,7 @@ import org.apache.iotdb.confignode.rpc.thrift.TGetTimeSlotListReq;
 import org.apache.iotdb.confignode.rpc.thrift.TGetTimeSlotListResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetTriggerTableResp;
 import org.apache.iotdb.confignode.rpc.thrift.TGetUDFTableResp;
+import org.apache.iotdb.confignode.rpc.thrift.TGetUdfTableReq;
 import org.apache.iotdb.confignode.rpc.thrift.TLoginReq;
 import org.apache.iotdb.confignode.rpc.thrift.TMigrateRegionReq;
 import org.apache.iotdb.confignode.rpc.thrift.TPermissionInfoResp;
@@ -180,6 +185,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 
 public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClient, AutoCloseable {
@@ -195,6 +201,9 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
       "Failed to connect to ConfigNode %s from DataNode %s when executing %s, Exception:";
   private static final long RETRY_INTERVAL_MS = 1000L;
   private static final long WAIT_CN_LEADER_ELECTION_INTERVAL_MS = 2000L;
+
+  private static final String UNSUPPORTED_INVOCATION =
+      "This method is not supported for invocation by DataNode";
 
   private final ThriftClientProperty property;
 
@@ -467,17 +476,17 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
 
   @Override
   public TAINodeRegisterResp registerAINode(TAINodeRegisterReq req) throws TException {
-    throw new UnsupportedOperationException("RegisterAINode method is not supported in datanode");
+    throw new UnsupportedOperationException(UNSUPPORTED_INVOCATION);
   }
 
   @Override
   public TAINodeRestartResp restartAINode(TAINodeRestartReq req) throws TException {
-    throw new UnsupportedOperationException("RestartAINode method is not supported in datanode");
+    throw new UnsupportedOperationException(UNSUPPORTED_INVOCATION);
   }
 
   @Override
   public TSStatus removeAINode(TAINodeRemoveReq req) throws TException {
-    throw new UnsupportedOperationException("RemoveAINode method is not supported in datanode");
+    throw new UnsupportedOperationException(UNSUPPORTED_INVOCATION);
   }
 
   @Override
@@ -488,8 +497,7 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
 
   @Override
   public TAINodeConfigurationResp getAINodeConfiguration(int aiNodeId) throws TException {
-    throw new UnsupportedOperationException(
-        "GetAINodeConfiguration method is not supported in datanode");
+    throw new UnsupportedOperationException(UNSUPPORTED_INVOCATION);
   }
 
   @Override
@@ -543,7 +551,7 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
   }
 
   @Override
-  public TSStatus deleteDatabases(TDeleteDatabasesReq req) throws TException {
+  public TSStatus deleteDatabases(final TDeleteDatabasesReq req) throws TException {
     return executeRemoteCallWithRetry(
         () -> client.deleteDatabases(req), status -> !updateConfigNodeLeader(status));
   }
@@ -620,7 +628,7 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
 
   @Override
   public TSchemaPartitionTableResp getOrCreateSchemaPartitionTableWithSlots(
-      Map<String, List<TSeriesPartitionSlot>> dbSlotMap) throws TException {
+      final Map<String, List<TSeriesPartitionSlot>> dbSlotMap) throws TException {
     return executeRemoteCallWithRetry(
         () -> client.getOrCreateSchemaPartitionTableWithSlots(dbSlotMap),
         resp -> !updateConfigNodeLeader(resp.status));
@@ -740,9 +748,9 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
   }
 
   @Override
-  public TSStatus clearCache() throws TException {
+  public TSStatus clearCache(final Set<Integer> clearCacheOptions) throws TException {
     return executeRemoteCallWithRetry(
-        () -> client.clearCache(), status -> !updateConfigNodeLeader(status));
+        () -> client.clearCache(clearCacheOptions), status -> !updateConfigNodeLeader(status));
   }
 
   @Override
@@ -771,7 +779,8 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
 
   @Override
   public TSStatus loadConfiguration() throws TException {
-    throw new UnsupportedOperationException("Please call submitLoadConfigurationTask instead");
+    throw new UnsupportedOperationException(
+        UNSUPPORTED_INVOCATION + ", please call submitLoadConfigurationTask instead");
   }
 
   @Override
@@ -880,9 +889,9 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
   }
 
   @Override
-  public TGetUDFTableResp getUDFTable() throws TException {
+  public TGetUDFTableResp getUDFTable(TGetUdfTableReq req) throws TException {
     return executeRemoteCallWithRetry(
-        () -> client.getUDFTable(), resp -> !updateConfigNodeLeader(resp.status));
+        () -> client.getUDFTable(req), resp -> !updateConfigNodeLeader(resp.status));
   }
 
   @Override
@@ -1267,15 +1276,37 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
   }
 
   @Override
-  public TSStatus alterTable(final TAlterTableReq req) throws TException {
+  public TSStatus alterOrDropTable(final TAlterOrDropTableReq req) throws TException {
     return executeRemoteCallWithRetry(
-        () -> client.alterTable(req), status -> !updateConfigNodeLeader(status));
+        () -> client.alterOrDropTable(req), status -> !updateConfigNodeLeader(status));
   }
 
   @Override
-  public TShowTableResp showTables(final String database) throws TException {
+  public TShowTableResp showTables(final String database, final boolean isDetails)
+      throws TException {
     return executeRemoteCallWithRetry(
-        () -> client.showTables(database), resp -> !updateConfigNodeLeader(resp.status));
+        () -> client.showTables(database, isDetails), resp -> !updateConfigNodeLeader(resp.status));
+  }
+
+  @Override
+  public TDescTableResp describeTable(
+      final String database, final String tableName, final boolean isDetails) throws TException {
+    return executeRemoteCallWithRetry(
+        () -> client.describeTable(database, tableName, isDetails),
+        resp -> !updateConfigNodeLeader(resp.status));
+  }
+
+  @Override
+  public TFetchTableResp fetchTables(final Map<String, Set<String>> fetchTableMap)
+      throws TException {
+    return executeRemoteCallWithRetry(
+        () -> client.fetchTables(fetchTableMap), resp -> !updateConfigNodeLeader(resp.status));
+  }
+
+  @Override
+  public TDeleteTableDeviceResp deleteDevice(final TDeleteTableDeviceReq req) throws TException {
+    return executeRemoteCallWithRetry(
+        () -> client.deleteDevice(req), resp -> !updateConfigNodeLeader(resp.status));
   }
 
   public static class Factory extends ThriftClientFactory<ConfigRegionId, ConfigNodeClient> {

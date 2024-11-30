@@ -20,6 +20,7 @@
 package org.apache.iotdb.db.queryengine.plan.relational.analyzer;
 
 import org.apache.iotdb.common.rpc.thrift.TEndPoint;
+import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.common.rpc.thrift.TSStatus;
 import org.apache.iotdb.commons.partition.DataPartition;
 import org.apache.iotdb.commons.partition.SchemaPartition;
@@ -41,9 +42,12 @@ import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.AllColumns;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.DataType;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.ExistsPredicate;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Expression;
+import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.FieldReference;
+import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Fill;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.FunctionCall;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.InPredicate;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Join;
+import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Literal;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Node;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Offset;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.OrderBy;
@@ -56,6 +60,7 @@ import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Relation;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Statement;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.SubqueryExpression;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Table;
+import org.apache.iotdb.db.queryengine.plan.statement.component.FillPolicy;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -64,8 +69,11 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Streams;
 import com.google.errorprone.annotations.Immutable;
+import org.apache.tsfile.file.metadata.IDeviceID;
 import org.apache.tsfile.read.common.block.TsBlock;
 import org.apache.tsfile.read.common.type.Type;
+import org.apache.tsfile.read.filter.basic.Filter;
+import org.apache.tsfile.utils.TimeDuration;
 
 import javax.annotation.Nullable;
 
@@ -93,6 +101,7 @@ import static java.util.Collections.unmodifiableList;
 import static java.util.Collections.unmodifiableMap;
 import static java.util.Collections.unmodifiableSet;
 import static java.util.Objects.requireNonNull;
+import static org.apache.iotdb.commons.partition.DataPartition.NOT_ASSIGNED;
 
 public class Analysis implements IAnalysis {
 
@@ -124,6 +133,7 @@ public class Analysis implements IAnalysis {
   private final Map<AccessControlInfo, Map<QualifiedObjectName, Set<String>>>
       tableColumnReferences = new LinkedHashMap<>();
 
+  private final Map<NodeRef<Fill>, FillAnalysis> fill = new LinkedHashMap<>();
   private final Map<NodeRef<Offset>, Long> offset = new LinkedHashMap<>();
   private final Map<NodeRef<Node>, OptionalLong> limit = new LinkedHashMap<>();
   private final Map<NodeRef<AllColumns>, List<Field>> selectAllResultFields = new LinkedHashMap<>();
@@ -150,6 +160,11 @@ public class Analysis implements IAnalysis {
 
   private final Map<NodeRef<Node>, Expression> where = new LinkedHashMap<>();
   private final Map<NodeRef<QuerySpecification>, Expression> having = new LinkedHashMap<>();
+
+  private final Map<NodeRef<QuerySpecification>, FunctionCall> gapFill = new LinkedHashMap<>();
+  private final Map<NodeRef<QuerySpecification>, List<Expression>> gapFillGroupingKeys =
+      new LinkedHashMap<>();
+
   private final Map<NodeRef<Node>, List<Expression>> orderByExpressions = new LinkedHashMap<>();
   private final Set<NodeRef<OrderBy>> redundantOrderBy = new HashSet<>();
   private final Map<NodeRef<Node>, List<SelectExpression>> selectExpressions =
@@ -186,6 +201,8 @@ public class Analysis implements IAnalysis {
   // if emptyDataSource, there is no need to execute the query in BE
   private boolean emptyDataSource = false;
 
+  private boolean isQuery = false;
+
   public DataPartition getDataPartition() {
     return dataPartition;
   }
@@ -200,6 +217,7 @@ public class Analysis implements IAnalysis {
   }
 
   public Statement getStatement() {
+    requireNonNull(root);
     return root;
   }
 
@@ -321,8 +339,9 @@ public class Analysis implements IAnalysis {
     return aggregates.get(NodeRef.of(query));
   }
 
-  public boolean hasAggregates() {
-    return !aggregates.isEmpty();
+  public boolean noAggregates() {
+    return aggregates.isEmpty()
+        || (aggregates.size() == 1 && aggregates.entrySet().iterator().next().getValue().isEmpty());
   }
 
   public void setOrderByAggregates(OrderBy node, List<Expression> aggregates) {
@@ -396,6 +415,10 @@ public class Analysis implements IAnalysis {
     return groupingSets.containsKey(NodeRef.of(node));
   }
 
+  public boolean containsAggregationQuery() {
+    return !groupingSets.isEmpty();
+  }
+
   public GroupingSetAnalysis getGroupingSets(QuerySpecification node) {
     return groupingSets.get(NodeRef.of(node));
   }
@@ -426,6 +449,15 @@ public class Analysis implements IAnalysis {
 
   public boolean isOrderByRedundant(OrderBy orderBy) {
     return redundantOrderBy.contains(NodeRef.of(orderBy));
+  }
+
+  public void setFill(Fill node, FillAnalysis fillAnalysis) {
+    fill.put(NodeRef.of(node), fillAnalysis);
+  }
+
+  public FillAnalysis getFill(Fill node) {
+    checkState(fill.containsKey(NodeRef.of(node)), "missing FillAnalysis for node %s", node);
+    return fill.get(NodeRef.of(node));
   }
 
   public void setOffset(Offset node, long rowCount) {
@@ -474,6 +506,23 @@ public class Analysis implements IAnalysis {
     return having.get(NodeRef.of(query));
   }
 
+  public void setGapFill(QuerySpecification node, FunctionCall dateBinGapFill) {
+    gapFill.put(NodeRef.of(node), dateBinGapFill);
+  }
+
+  public FunctionCall getGapFill(QuerySpecification query) {
+    return gapFill.get(NodeRef.of(query));
+  }
+
+  public void setGapFillGroupingKeys(
+      QuerySpecification node, List<Expression> gaoFillGroupingKeys) {
+    gapFillGroupingKeys.put(NodeRef.of(node), gaoFillGroupingKeys);
+  }
+
+  public List<Expression> getGapFillGroupingKeys(QuerySpecification query) {
+    return gapFillGroupingKeys.get(NodeRef.of(query));
+  }
+
   public void setJoinUsing(Join node, JoinUsingAnalysis analysis) {
     joinUsing.put(NodeRef.of(node), analysis);
   }
@@ -488,6 +537,10 @@ public class Analysis implements IAnalysis {
 
   public Expression getJoinCriteria(Join join) {
     return joins.get(NodeRef.of(join));
+  }
+
+  public boolean hasJoinNode() {
+    return !joinUsing.isEmpty() || !joins.isEmpty();
   }
 
   public void recordSubqueries(Node node, ExpressionAnalysis expressionAnalysis) {
@@ -701,7 +754,11 @@ public class Analysis implements IAnalysis {
 
   @Override
   public boolean isQuery() {
-    return false;
+    return isQuery;
+  }
+
+  public void setQuery(boolean query) {
+    isQuery = query;
   }
 
   @Override
@@ -751,6 +808,11 @@ public class Analysis implements IAnalysis {
   }
 
   @Override
+  public List<TEndPoint> getRedirectNodeList() {
+    return redirectNodeList;
+  }
+
+  @Override
   public void setRedirectNodeList(List<TEndPoint> redirectNodeList) {
     this.redirectNodeList = redirectNodeList;
   }
@@ -761,6 +823,15 @@ public class Analysis implements IAnalysis {
       redirectNodeList = new ArrayList<>();
     }
     redirectNodeList.add(endPoint);
+  }
+
+  public List<TRegionReplicaSet> getDataRegionReplicaSetWithTimeFilter(
+      String database, IDeviceID deviceId, Filter timeFilter) {
+    if (dataPartition == null) {
+      return Collections.singletonList(NOT_ASSIGNED);
+    } else {
+      return dataPartition.getDataRegionReplicaSetWithTimeFilter(database, deviceId, timeFilter);
+    }
   }
 
   @Override
@@ -1034,6 +1105,78 @@ public class Analysis implements IAnalysis {
 
     public List<QuantifiedComparisonExpression> getQuantifiedComparisonSubqueries() {
       return unmodifiableList(quantifiedComparisonSubqueries);
+    }
+  }
+
+  public static class FillAnalysis {
+    protected final FillPolicy fillMethod;
+
+    protected FillAnalysis(FillPolicy fillMethod) {
+      this.fillMethod = fillMethod;
+    }
+
+    public FillPolicy getFillMethod() {
+      return fillMethod;
+    }
+  }
+
+  public static class ValueFillAnalysis extends FillAnalysis {
+    private final Literal filledValue;
+
+    public ValueFillAnalysis(Literal filledValue) {
+      super(FillPolicy.CONSTANT);
+      requireNonNull(filledValue, "filledValue is null");
+      this.filledValue = filledValue;
+    }
+
+    public Literal getFilledValue() {
+      return filledValue;
+    }
+  }
+
+  public static class PreviousFillAnalysis extends FillAnalysis {
+    @Nullable private final TimeDuration timeBound;
+    @Nullable private final FieldReference fieldReference;
+    @Nullable private final List<FieldReference> groupingKeys;
+
+    public PreviousFillAnalysis(
+        TimeDuration timeBound, FieldReference fieldReference, List<FieldReference> groupingKeys) {
+      super(FillPolicy.PREVIOUS);
+      this.timeBound = timeBound;
+      this.fieldReference = fieldReference;
+      this.groupingKeys = groupingKeys;
+    }
+
+    public Optional<TimeDuration> getTimeBound() {
+      return Optional.ofNullable(timeBound);
+    }
+
+    public Optional<FieldReference> getFieldReference() {
+      return Optional.ofNullable(fieldReference);
+    }
+
+    public Optional<List<FieldReference>> getGroupingKeys() {
+      return Optional.ofNullable(groupingKeys);
+    }
+  }
+
+  public static class LinearFillAnalysis extends FillAnalysis {
+    private final FieldReference fieldReference;
+    @Nullable private final List<FieldReference> groupingKeys;
+
+    public LinearFillAnalysis(FieldReference fieldReference, List<FieldReference> groupingKeys) {
+      super(FillPolicy.LINEAR);
+      requireNonNull(fieldReference, "fieldReference is null");
+      this.fieldReference = fieldReference;
+      this.groupingKeys = groupingKeys;
+    }
+
+    public FieldReference getFieldReference() {
+      return fieldReference;
+    }
+
+    public Optional<List<FieldReference>> getGroupingKeys() {
+      return Optional.ofNullable(groupingKeys);
     }
   }
 

@@ -24,6 +24,7 @@ import org.apache.iotdb.commons.consensus.index.ProgressIndexType;
 import org.apache.iotdb.commons.consensus.index.impl.MinimumProgressIndex;
 import org.apache.iotdb.commons.path.IFullPath;
 import org.apache.iotdb.commons.path.PartialPath;
+import org.apache.iotdb.commons.pipe.datastructure.PersistentResource;
 import org.apache.iotdb.commons.utils.CommonDateTimeUtils;
 import org.apache.iotdb.commons.utils.TestOnly;
 import org.apache.iotdb.db.conf.IoTDBConfig;
@@ -35,7 +36,13 @@ import org.apache.iotdb.db.storageengine.dataregion.DataRegion;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.selector.utils.InsertionCompactionCandidateStatus;
 import org.apache.iotdb.db.storageengine.dataregion.memtable.ReadOnlyMemChunk;
 import org.apache.iotdb.db.storageengine.dataregion.memtable.TsFileProcessor;
+import org.apache.iotdb.db.storageengine.dataregion.modification.ModEntry;
+import org.apache.iotdb.db.storageengine.dataregion.modification.ModFileManagement;
 import org.apache.iotdb.db.storageengine.dataregion.modification.ModificationFile;
+import org.apache.iotdb.db.storageengine.dataregion.modification.TreeDeletionEntry;
+import org.apache.iotdb.db.storageengine.dataregion.modification.v1.Deletion;
+import org.apache.iotdb.db.storageengine.dataregion.modification.v1.Modification;
+import org.apache.iotdb.db.storageengine.dataregion.modification.v1.ModificationFileV1;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.generator.TsFileNameGenerator;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.timeindex.ArrayDeviceTimeIndex;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.timeindex.FileTimeIndex;
@@ -64,12 +71,21 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -77,7 +93,7 @@ import static org.apache.iotdb.commons.conf.IoTDBConstant.FILE_NAME_SEPARATOR;
 import static org.apache.tsfile.common.constant.TsFileConstant.TSFILE_SUFFIX;
 
 @SuppressWarnings("java:S1135") // ignore todos
-public class TsFileResource {
+public class TsFileResource implements PersistentResource {
 
   private static final long INSTANCE_SIZE =
       RamUsageEstimator.shallowSizeOfInstance(TsFileResource.class)
@@ -108,8 +124,19 @@ public class TsFileResource {
   /** time index */
   private ITimeIndex timeIndex;
 
+  private Future<ModificationFile> exclusiveModFileFuture;
+  // this future suggest when the async recovery ends
+  private CompletableFuture<String> sharedModFilePathFuture;
+
+  private ModFileManagement modFileManagement;
+
   @SuppressWarnings("squid:S3077")
-  private volatile ModificationFile modFile;
+  private volatile ModificationFile exclusiveModFile;
+
+  private volatile ModificationFile sharedModFile;
+  private long sharedModFileOffset;
+
+  public static final boolean useSharedModFile = false;
 
   @SuppressWarnings("squid:S3077")
   private volatile ModificationFile compactionModFile;
@@ -222,8 +249,8 @@ public class TsFileResource {
     this.tierLevel = originTsFileResource.tierLevel;
   }
 
-  public synchronized void serialize() throws IOException {
-    FileOutputStream fileOutputStream = new FileOutputStream(file + RESOURCE_SUFFIX + TEMP_SUFFIX);
+  public synchronized void serialize(String targetFilePath) throws IOException {
+    FileOutputStream fileOutputStream = new FileOutputStream(targetFilePath + TEMP_SUFFIX);
     BufferedOutputStream outputStream = new BufferedOutputStream(fileOutputStream);
     try {
       serializeTo(outputStream);
@@ -232,10 +259,14 @@ public class TsFileResource {
       fileOutputStream.getFD().sync();
       outputStream.close();
     }
-    File src = fsFactory.getFile(file + RESOURCE_SUFFIX + TEMP_SUFFIX);
-    File dest = fsFactory.getFile(file + RESOURCE_SUFFIX);
+    File src = fsFactory.getFile(targetFilePath + TEMP_SUFFIX);
+    File dest = fsFactory.getFile(targetFilePath);
     fsFactory.deleteIfExists(dest);
     fsFactory.moveFile(src, dest);
+  }
+
+  public synchronized void serialize() throws IOException {
+    serialize(file + RESOURCE_SUFFIX);
   }
 
   private void serializeTo(BufferedOutputStream outputStream) throws IOException {
@@ -245,9 +276,10 @@ public class TsFileResource {
     ReadWriteIOUtils.write(maxPlanIndex, outputStream);
     ReadWriteIOUtils.write(minPlanIndex, outputStream);
 
-    if (modFile != null && modFile.exists()) {
-      String modFileName = new File(modFile.getFilePath()).getName();
-      ReadWriteIOUtils.write(modFileName, outputStream);
+    if (sharedModFile != null && sharedModFile.exists()) {
+      String modFilePath = sharedModFile.getFile().getAbsolutePath();
+      ReadWriteIOUtils.write(modFilePath, outputStream);
+      ReadWriteIOUtils.write(sharedModFileOffset, outputStream);
     } else {
       // make the first "inputStream.available() > 0" in deserialize() happy.
       //
@@ -279,10 +311,14 @@ public class TsFileResource {
       minPlanIndex = ReadWriteIOUtils.readLong(inputStream);
 
       if (inputStream.available() > 0) {
-        String modFileName = ReadWriteIOUtils.readString(inputStream);
-        if (modFileName != null) {
-          File modF = new File(file.getParentFile(), modFileName);
-          modFile = new ModificationFile(modF.getPath());
+        String modFilePath = ReadWriteIOUtils.readString(inputStream);
+        if (modFilePath != null && !modFilePath.isEmpty()) {
+          sharedModFileOffset = ReadWriteIOUtils.readLong(inputStream);
+          if (sharedModFilePathFuture != null) {
+            sharedModFilePathFuture.complete(modFilePath);
+          } else {
+            sharedModFilePathFuture = CompletableFuture.completedFuture(modFilePath);
+          }
         }
       }
 
@@ -332,8 +368,36 @@ public class TsFileResource {
     return file != null && file.exists();
   }
 
-  public boolean modFileExists() {
-    return getModFile().exists();
+  public boolean exclusiveModFileExists() {
+    return getExclusiveModFile().exists();
+  }
+
+  public boolean sharedModFileExists() {
+    return getSharedModFile() != null && sharedModFile.exists();
+  }
+
+  public boolean anyModFileExists() {
+    return exclusiveModFileExists() || sharedModFileExists();
+  }
+
+  public void link(TsFileResource target) throws IOException {
+    Files.createLink(target.getTsFile().toPath(), this.getTsFile().toPath());
+    Files.createLink(
+        new File(target.getTsFilePath() + TsFileResource.RESOURCE_SUFFIX).toPath(),
+        new File(this.getTsFilePath() + TsFileResource.RESOURCE_SUFFIX).toPath());
+    linkModFile(target);
+  }
+
+  public void linkModFile(TsFileResource target) throws IOException {
+    if (exclusiveModFileExists()) {
+      Files.createLink(
+          ModificationFile.getExclusiveMods(target.getTsFile()).toPath(),
+          ModificationFile.getExclusiveMods(getTsFile()).toPath());
+    }
+    if (sharedModFileExists()) {
+      modFileManagement.addReference(target, sharedModFile);
+      target.setSharedModFile(this.getSharedModFile(), false);
+    }
   }
 
   public boolean compactionModFileExists() {
@@ -348,16 +412,102 @@ public class TsFileResource {
     return pathToReadOnlyMemChunkMap.get(seriesPath);
   }
 
-  @SuppressWarnings("squid:S2886")
-  public ModificationFile getModFile() {
+  public long getTotalModSizeInByte() {
+    return getExclusiveModFile().getFileLength()
+        + (getSharedModFile() != null ? sharedModFile.getFileLength() : 0);
+  }
+
+  private void serializedSharedModFile() throws IOException {
+    serialize();
+  }
+
+  public void setSharedModFile(ModificationFile modFile, boolean serializeNow) {
     if (modFile == null) {
-      synchronized (this) {
-        if (modFile == null) {
-          modFile = ModificationFile.getNormalMods(this);
+      return;
+    }
+
+    sharedModFile = modFile;
+    try {
+      sharedModFileOffset = sharedModFile.getFileLength();
+      if (serializeNow) {
+        serializedSharedModFile();
+      }
+    } catch (IOException e) {
+      LOGGER.warn("Failed to serialize shared mod file", e);
+    }
+  }
+
+  private synchronized ModificationFile prepareModFileForWrite() throws IOException {
+    if (getSharedModFile() != null) {
+      return getSharedModFile();
+    }
+
+    if (useSharedModFile) {
+      ModificationFile modificationFile = modFileManagement.allocateFor(this);
+      setSharedModFile(modificationFile, true);
+      return sharedModFile;
+    }
+
+    return getExclusiveModFile();
+  }
+
+  public ModificationFile getModFileForWrite() throws IOException {
+    if (getSharedModFile() != null) {
+      return getSharedModFile();
+    }
+    if (exclusiveModFile != null && !useSharedModFile) {
+      return exclusiveModFile;
+    }
+
+    return prepareModFileForWrite();
+  }
+
+  public ModificationFile getSharedModFile() {
+    if (!useSharedModFile) {
+      return null;
+    }
+    if (sharedModFile != null) {
+      return sharedModFile;
+    }
+    if (sharedModFilePathFuture != null) {
+      try {
+        if (modFileManagement != null) {
+          sharedModFile = modFileManagement.recover(sharedModFilePathFuture.get(), this);
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } catch (ExecutionException | IOException e) {
+        LOGGER.error("Failed to get shared mod file", e);
+      }
+    }
+    return sharedModFile;
+  }
+
+  @SuppressWarnings("java:S2886")
+  public ModificationFile getExclusiveModFile() {
+    if (exclusiveModFile != null) {
+      return exclusiveModFile;
+    }
+
+    synchronized (this) {
+      if (exclusiveModFile == null) {
+        if (exclusiveModFileFuture != null) {
+          try {
+            exclusiveModFile = exclusiveModFileFuture.get();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.warn("Upgrading mod file interrupted", e);
+            exclusiveModFile = ModificationFile.getExclusiveMods(this);
+          } catch (ExecutionException e) {
+            LOGGER.warn("Cannot upgrade mod file", e);
+            exclusiveModFile = ModificationFile.getExclusiveMods(this);
+          }
+        } else {
+          exclusiveModFile = ModificationFile.getExclusiveMods(this);
         }
       }
     }
-    return modFile;
+    return exclusiveModFile;
   }
 
   public ModificationFile getCompactionModFile() {
@@ -371,11 +521,19 @@ public class TsFileResource {
     return compactionModFile;
   }
 
+  public void removeCompactionModFile() throws IOException {
+    if (compactionModFileExists() && !useSharedModFile) {
+      getCompactionModFile().remove();
+    }
+    compactionModFile = null;
+  }
+
+  @TestOnly
   public void resetModFile() throws IOException {
-    if (modFile != null) {
+    if (exclusiveModFile != null) {
       synchronized (this) {
-        modFile.close();
-        modFile = null;
+        exclusiveModFile.close();
+        exclusiveModFile = null;
       }
     }
   }
@@ -447,11 +605,13 @@ public class TsFileResource {
     return ascending ? getStartTime(deviceId) : getEndTime(deviceId);
   }
 
+  @Override
   public long getFileStartTime() {
     return timeIndex.getMinStartTime();
   }
 
   /** Open file's end time is Long.MIN_VALUE */
+  @Override
   public long getFileEndTime() {
     return timeIndex.getMaxEndTime();
   }
@@ -484,7 +644,9 @@ public class TsFileResource {
     }
   }
 
-  /** Only used for compaction to validate tsfile. */
+  /**
+   * Used for compaction to verify tsfile, also used to verify TimeIndex version when loading tsfile
+   */
   public ITimeIndex getTimeIndex() {
     return timeIndex;
   }
@@ -518,9 +680,9 @@ public class TsFileResource {
 
   /** Used for compaction. */
   public void closeWithoutSettingStatus() throws IOException {
-    if (modFile != null) {
-      modFile.close();
-      modFile = null;
+    if (exclusiveModFile != null) {
+      exclusiveModFile.close();
+      exclusiveModFile = null;
     }
     if (compactionModFile != null) {
       compactionModFile.close();
@@ -590,8 +752,20 @@ public class TsFileResource {
   }
 
   public void removeModFile() throws IOException {
-    getModFile().remove();
-    modFile = null;
+
+    if (getExclusiveModFile().exists()) {
+      getExclusiveModFile().remove();
+    }
+    exclusiveModFile = null;
+
+    if (getSharedModFile() != null && modFileManagement != null) {
+      modFileManagement.releaseFor(this, sharedModFile);
+    }
+
+    // we either remove all mod files after successful compactions,
+    // or remove compaction mod file only after failed compactions,
+    // so the previous two do not need to be encapsulated
+    removeCompactionModFile();
   }
 
   /**
@@ -612,9 +786,7 @@ public class TsFileResource {
       return false;
     }
     try {
-      fsFactory.deleteIfExists(fsFactory.getFile(file.getPath() + ModificationFile.FILE_SUFFIX));
-      fsFactory.deleteIfExists(
-          fsFactory.getFile(file.getPath() + ModificationFile.COMPACTION_FILE_SUFFIX));
+      removeModFile();
     } catch (IOException e) {
       LOGGER.error("ModificationFile {} cannot be deleted: {}", file, e.getMessage());
       return false;
@@ -638,17 +810,17 @@ public class TsFileResource {
     fsFactory.moveFile(
         fsFactory.getFile(file.getPath() + RESOURCE_SUFFIX),
         fsFactory.getFile(targetDir, file.getName() + RESOURCE_SUFFIX));
-    File originModFile = fsFactory.getFile(file.getPath() + ModificationFile.FILE_SUFFIX);
-    if (originModFile.exists()) {
+
+    if (exclusiveModFileExists()) {
       fsFactory.moveFile(
-          originModFile,
-          fsFactory.getFile(targetDir, file.getName() + ModificationFile.FILE_SUFFIX));
+          getExclusiveModFile().getFile(),
+          fsFactory.getFile(targetDir, ModificationFile.getExclusiveMods(file).getName()));
     }
   }
 
   @Override
   public String toString() {
-    return String.format("file is %s, status: %s", file.toString(), getStatus());
+    return String.format("{file: %s, status: %s}", file.toString(), getStatus());
   }
 
   @Override
@@ -855,9 +1027,10 @@ public class TsFileResource {
     return timeIndex.isSpanMultiTimePartitions();
   }
 
-  public void setModFile(ModificationFile modFile) {
+  @TestOnly
+  public void setExclusiveModFile(ModificationFile exclusiveModFile) {
     synchronized (this) {
-      this.modFile = modFile;
+      this.exclusiveModFile = exclusiveModFile;
     }
   }
 
@@ -1138,7 +1311,7 @@ public class TsFileResource {
 
     maxProgressIndex =
         (maxProgressIndex == null
-            ? progressIndex.deepCopy()
+            ? progressIndex
             : maxProgressIndex.updateToMinimumEqualOrIsAfterProgressIndex(progressIndex));
 
     PipeTimePartitionProgressIndexKeeper.getInstance()
@@ -1150,10 +1323,15 @@ public class TsFileResource {
       return;
     }
 
-    maxProgressIndex = progressIndex.deepCopy();
+    maxProgressIndex = progressIndex;
 
     PipeTimePartitionProgressIndexKeeper.getInstance()
         .updateProgressIndex(getDataRegionId(), getTimePartition(), maxProgressIndex);
+  }
+
+  @Override
+  public ProgressIndex getProgressIndex() {
+    return getMaxProgressIndex();
   }
 
   public ProgressIndex getMaxProgressIndexAfterClose() throws IllegalStateException {
@@ -1191,5 +1369,121 @@ public class TsFileResource {
 
   public void setInsertionCompactionTaskCandidate(InsertionCompactionCandidateStatus status) {
     insertionCompactionCandidateStatus = status;
+  }
+
+  public ModIterator getModEntryIterator() {
+    return new ModIterator();
+  }
+
+  public Collection<ModEntry> getAllModEntries() {
+    long estimatedModEntrySizeByte = 50;
+    long modFileTotalSize = getTotalModSizeInByte();
+    if (modFileTotalSize == 0) {
+      return Collections.emptyList();
+    }
+
+    // estimate the initial size to avoid resizing
+    List<ModEntry> entries =
+        new ArrayList<>((int) (modFileTotalSize / estimatedModEntrySizeByte + 1));
+    ModIterator modEntryIterator = getModEntryIterator();
+    modEntryIterator.forEachRemaining(entries::add);
+    return entries;
+  }
+
+  public class ModIterator implements Iterator<ModEntry> {
+
+    private final Iterator<ModEntry> sharedModIterator;
+    private final Iterator<ModEntry> exclusiveModIterator;
+
+    public ModIterator() {
+      Iterator<ModEntry> exclusiveIterator = null;
+      try {
+        ModificationFile newMFile = getExclusiveModFile();
+        exclusiveIterator = newMFile != null ? newMFile.getModIterator(0) : null;
+      } catch (IOException e) {
+        LOGGER.warn("Failed to read mods from {} for {}", exclusiveModFile, this, e);
+      }
+
+      this.exclusiveModIterator = exclusiveIterator;
+
+      Iterator<ModEntry> sharedIterator = null;
+      try {
+        sharedIterator =
+            getSharedModFile() != null ? sharedModFile.getModIterator(sharedModFileOffset) : null;
+      } catch (IOException e) {
+        LOGGER.warn("Failed to read mods from {} for {}", exclusiveModFile, this, e);
+      }
+
+      this.sharedModIterator = sharedIterator;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return (exclusiveModIterator != null && exclusiveModIterator.hasNext())
+          || (sharedModIterator != null && sharedModIterator.hasNext());
+    }
+
+    @Override
+    public ModEntry next() {
+      if (exclusiveModIterator != null && exclusiveModIterator.hasNext()) {
+        return exclusiveModIterator.next();
+      }
+      if (sharedModIterator != null && sharedModIterator.hasNext()) {
+        return sharedModIterator.next();
+      }
+      throw new NoSuchElementException();
+    }
+  }
+
+  @SuppressWarnings({"java:S4042", "java:S899", "ResultOfMethodCallIgnored"})
+  public void upgradeModFile(ExecutorService upgradeModFileThreadPool) throws IOException {
+    ModificationFileV1 oldModFile = ModificationFileV1.getNormalMods(this);
+    if (!oldModFile.exists()) {
+      return;
+    }
+
+    exclusiveModFileFuture =
+        upgradeModFileThreadPool.submit(
+            () -> {
+              ModificationFile newMFile = ModificationFile.getExclusiveMods(this);
+              newMFile.getFile().delete();
+              try {
+                for (Modification oldMod : oldModFile.getModifications()) {
+                  newMFile.write(new TreeDeletionEntry((Deletion) oldMod));
+                }
+              } finally {
+                newMFile.close();
+              }
+              oldModFile.remove();
+              return newMFile;
+            });
+  }
+
+  public TsFileResource getPrev() {
+    return prev;
+  }
+
+  public TsFileResource getNext() {
+    return next;
+  }
+
+  public void setSharedModFilePathFuture(CompletableFuture<String> sharedModFilePathFuture) {
+    this.sharedModFilePathFuture = sharedModFilePathFuture;
+  }
+
+  public boolean isUseSharedModFile() {
+    return useSharedModFile;
+  }
+
+  public void setModFileManagement(ModFileManagement modFileManagement) {
+    this.modFileManagement = modFileManagement;
+  }
+
+  public ModFileManagement getModFileManagement() {
+    return modFileManagement;
+  }
+
+  public void setCompactionModFile(ModificationFile compactionModFile) {
+    this.compactionModFile = compactionModFile;
   }
 }

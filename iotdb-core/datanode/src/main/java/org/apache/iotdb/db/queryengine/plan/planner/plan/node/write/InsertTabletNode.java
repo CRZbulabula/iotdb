@@ -34,6 +34,7 @@ import org.apache.iotdb.db.queryengine.plan.planner.plan.node.PlanNodeId;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.PlanNodeType;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.PlanVisitor;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.WritePlanNode;
+import org.apache.iotdb.db.queryengine.plan.relational.metadata.fetcher.cache.TreeDeviceSchemaCacheManager;
 import org.apache.iotdb.db.storageengine.dataregion.memtable.DeviceIDFactory;
 import org.apache.iotdb.db.storageengine.dataregion.wal.buffer.IWALByteBufferView;
 import org.apache.iotdb.db.storageengine.dataregion.wal.buffer.WALEntryValue;
@@ -64,11 +65,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.function.IntToLongFunction;
 
 import static org.apache.iotdb.db.utils.CommonUtils.isAlive;
 
@@ -218,7 +219,7 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
     int startLoc = 0; // included
     IDeviceID currDeviceId = getDeviceID(0);
 
-    Map<IDeviceID, PartitionSplitInfo> deviceIDSplitInfoMap = new HashMap<>();
+    Map<IDeviceID, PartitionSplitInfo> deviceIDSplitInfoMap = new LinkedHashMap<>();
 
     for (int i = 1; i < times.length; i++) { // times are sorted in session API.
       IDeviceID nextDeviceId = getDeviceID(i);
@@ -248,7 +249,7 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
     return deviceIDSplitInfoMap;
   }
 
-  private Map<TRegionReplicaSet, List<Integer>> splitByReplicaSet(
+  protected Map<TRegionReplicaSet, List<Integer>> splitByReplicaSet(
       Map<IDeviceID, PartitionSplitInfo> deviceIDSplitInfoMap, IAnalysis analysis) {
     Map<TRegionReplicaSet, List<Integer>> splitMap = new HashMap<>();
 
@@ -717,7 +718,7 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
       this.measurementSchemas = new MeasurementSchema[measurementSize];
       for (int i = 0; i < measurementSize; i++) {
         measurementSchemas[i] = MeasurementSchema.deserializeFrom(buffer);
-        measurements[i] = measurementSchemas[i].getMeasurementId();
+        measurements[i] = measurementSchemas[i].getMeasurementName();
       }
     } else {
       for (int i = 0; i < measurementSize; i++) {
@@ -836,22 +837,26 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
    */
   @Override
   public void serializeToWAL(IWALByteBufferView buffer) {
-    serializeToWAL(buffer, 0, rowCount);
+    serializeToWAL(buffer, Collections.singletonList(new int[] {0, rowCount}));
   }
 
-  public void serializeToWAL(IWALByteBufferView buffer, int start, int end) {
+  public void serializeToWAL(IWALByteBufferView buffer, List<int[]> rangeList) {
     buffer.putShort(getType().getNodeType());
-    subSerialize(buffer, start, end);
+    subSerialize(buffer, rangeList);
   }
 
-  void subSerialize(IWALByteBufferView buffer, int start, int end) {
+  void subSerialize(IWALByteBufferView buffer, List<int[]> rangeList) {
     buffer.putLong(searchIndex);
     WALWriteUtils.write(targetPath.getFullPath(), buffer);
     // data types are serialized in measurement schemas
     writeMeasurementSchemas(buffer);
-    writeTimes(buffer, start, end);
-    writeBitMaps(buffer, start, end);
-    writeValues(buffer, start, end);
+    int rowNumInRange = 0;
+    for (int[] startEnd : rangeList) {
+      rowNumInRange += startEnd[1] - startEnd[0];
+    }
+    writeTimes(buffer, rangeList, rowNumInRange);
+    writeBitMaps(buffer, rangeList, rowNumInRange);
+    writeValues(buffer, rangeList);
     buffer.put((byte) (isAligned ? 1 : 0));
   }
 
@@ -861,15 +866,17 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
     serializeMeasurementSchemasToWAL(buffer);
   }
 
-  protected void writeTimes(IWALByteBufferView buffer, int start, int end) {
-    buffer.putInt(end - start);
-    for (int i = start; i < end; i++) {
-      buffer.putLong(times[i]);
+  protected void writeTimes(IWALByteBufferView buffer, List<int[]> rangeList, int rowNumInRange) {
+    buffer.putInt(rowNumInRange);
+    for (int[] startEnd : rangeList) {
+      for (int i = startEnd[0]; i < startEnd[1]; i++) {
+        buffer.putLong(times[i]);
+      }
     }
   }
 
   /** Serialize bitmaps, ignoring failed time series */
-  protected void writeBitMaps(IWALByteBufferView buffer, int start, int end) {
+  protected void writeBitMaps(IWALByteBufferView buffer, List<int[]> rangeList, int rowNumInRange) {
     buffer.put(BytesUtils.boolToByte(bitMaps != null));
     if (bitMaps != null) {
       for (int i = 0; i < bitMaps.length; i++) {
@@ -882,9 +889,13 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
           buffer.put(BytesUtils.boolToByte(false));
         } else {
           buffer.put(BytesUtils.boolToByte(true));
-          int len = end - start;
-          BitMap partBitMap = new BitMap(len);
-          BitMap.copyOfRange(bitMaps[i], start, partBitMap, 0, len);
+          BitMap partBitMap = new BitMap(rowNumInRange);
+          int copiedLength = 0;
+          for (int[] startEnd : rangeList) {
+            int len = startEnd[1] - startEnd[0];
+            BitMap.copyOfRange(bitMaps[i], startEnd[0], partBitMap, copiedLength, len);
+            copiedLength += len;
+          }
           buffer.put(partBitMap.getByteArray());
         }
       }
@@ -892,13 +903,15 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
   }
 
   /** Serialize values, ignoring failed time series */
-  protected void writeValues(IWALByteBufferView buffer, int start, int end) {
+  protected void writeValues(IWALByteBufferView buffer, List<int[]> rangeList) {
     for (int i = 0; i < columns.length; i++) {
       // ignore failed partial insert
       if (measurements[i] == null) {
         continue;
       }
-      serializeColumn(dataTypes[i], columns[i], buffer, start, end);
+      for (int[] startEnd : rangeList) {
+        serializeColumn(dataTypes[i], columns[i], buffer, startEnd[0], startEnd[1]);
+      }
     }
   }
 
@@ -1124,23 +1137,24 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
     return visitor.visitInsertTablet(this, context);
   }
 
-  public TimeValuePair composeLastTimeValuePair(int measurementIndex) {
-    if (measurementIndex >= columns.length) {
+  public TimeValuePair composeLastTimeValuePair(
+      int measurementIndex, int startOffset, int endOffset) {
+    if (measurementIndex >= columns.length || Objects.isNull(dataTypes[measurementIndex])) {
       return null;
     }
 
     // get non-null value
-    int lastIdx = rowCount - 1;
+    int lastIdx = Math.min(endOffset - 1, rowCount - 1);
     if (bitMaps != null && bitMaps[measurementIndex] != null) {
       BitMap bitMap = bitMaps[measurementIndex];
-      while (lastIdx >= 0) {
+      while (lastIdx >= startOffset) {
         if (!bitMap.isMarked(lastIdx)) {
           break;
         }
         lastIdx--;
       }
     }
-    if (lastIdx < 0) {
+    if (lastIdx < startOffset) {
       return null;
     }
 
@@ -1181,6 +1195,10 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
     return new TimeValuePair(times[lastIdx], value);
   }
 
+  public TimeValuePair composeLastTimeValuePair(int measurementIndex) {
+    return composeLastTimeValuePair(measurementIndex, 0, rowCount);
+  }
+
   public IDeviceID getDeviceID(int rowIdx) {
     if (deviceID != null) {
       return deviceID;
@@ -1189,12 +1207,12 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
     return deviceID;
   }
 
-  private static class PartitionSplitInfo {
+  protected static class PartitionSplitInfo {
 
     // for each List in split, they are range1.start, range1.end, range2.start, range2.end, ...
-    private List<Integer> ranges = new ArrayList<>();
-    private List<TTimePartitionSlot> timePartitionSlots = new ArrayList<>();
-    private List<TRegionReplicaSet> replicaSets;
+    List<Integer> ranges = new ArrayList<>();
+    List<TTimePartitionSlot> timePartitionSlots = new ArrayList<>();
+    List<TRegionReplicaSet> replicaSets;
   }
 
   /**
@@ -1210,26 +1228,23 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
 
   /**
    * @param results insertion result of each row
-   * @param rowTTLGetter the ttl associated with each row
+   * @param ttl the ttl
    * @return the position of the first alive row
    * @throws OutOfTTLException if all rows have expired the TTL
    */
-  public int checkTTL(TSStatus[] results, IntToLongFunction rowTTLGetter) throws OutOfTTLException {
-    return checkTTLInternal(results, rowTTLGetter, true);
+  public int checkTTL(TSStatus[] results, long ttl) throws OutOfTTLException {
+    return checkTTLInternal(results, ttl, true);
   }
 
-  protected int checkTTLInternal(
-      TSStatus[] results, IntToLongFunction rowTTLGetter, boolean breakOnFirstAlive)
+  protected int checkTTLInternal(TSStatus[] results, long ttl, boolean breakOnFirstAlive)
       throws OutOfTTLException {
 
     /*
      * assume that batch has been sorted by client
      */
     int loc = 0;
-    long ttl = 0;
     int firstAliveLoc = -1;
     while (loc < getRowCount()) {
-      ttl = rowTTLGetter.applyAsLong(loc);
       long currTime = getTimes()[loc];
       // skip points that do not satisfy TTL
       if (!isAlive(currTime, ttl)) {
@@ -1257,5 +1272,21 @@ public class InsertTabletNode extends InsertNode implements WALEntryValue {
           getTimes()[getTimes().length - 1], (CommonDateTimeUtils.currentTime() - ttl));
     }
     return firstAliveLoc;
+  }
+
+  public void updateLastCache(String databaseName) {
+    String[] rawMeasurements = getRawMeasurements();
+    TimeValuePair[] timeValuePairs = new TimeValuePair[rawMeasurements.length];
+    for (int i = 0; i < rawMeasurements.length; i++) {
+      timeValuePairs[i] = composeLastTimeValuePair(i);
+    }
+    TreeDeviceSchemaCacheManager.getInstance()
+        .updateLastCacheIfExists(
+            databaseName,
+            getDeviceID(),
+            rawMeasurements,
+            timeValuePairs,
+            isAligned,
+            measurementSchemas);
   }
 }

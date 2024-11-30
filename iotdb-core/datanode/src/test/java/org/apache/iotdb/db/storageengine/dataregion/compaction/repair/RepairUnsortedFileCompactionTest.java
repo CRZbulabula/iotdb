@@ -34,8 +34,9 @@ import org.apache.iotdb.db.storageengine.dataregion.compaction.schedule.Compacti
 import org.apache.iotdb.db.storageengine.dataregion.compaction.schedule.CompactionScheduler;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.schedule.CompactionTaskManager;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.utils.CompactionTestFileWriter;
-import org.apache.iotdb.db.storageengine.dataregion.modification.Deletion;
+import org.apache.iotdb.db.storageengine.dataregion.modification.ModEntry;
 import org.apache.iotdb.db.storageengine.dataregion.modification.ModificationFile;
+import org.apache.iotdb.db.storageengine.dataregion.modification.TreeDeletionEntry;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.TsFileRepairStatus;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.TsFileResource;
 import org.apache.iotdb.db.storageengine.dataregion.utils.TsFileResourceUtils;
@@ -112,6 +113,7 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endFile();
     }
     Assert.assertFalse(TsFileResourceUtils.validateTsFileDataCorrectness(resource));
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
     RepairUnsortedFileCompactionTask task =
         new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, resource.isSeq(), 0);
     task.start();
@@ -136,6 +138,7 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endFile();
     }
     Assert.assertFalse(TsFileResourceUtils.validateTsFileDataCorrectness(resource));
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
     RepairUnsortedFileCompactionTask task =
         new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, resource.isSeq(), 0);
     task.start();
@@ -164,6 +167,7 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endFile();
     }
     Assert.assertFalse(TsFileResourceUtils.validateTsFileDataCorrectness(resource));
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
     RepairUnsortedFileCompactionTask task =
         new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, resource.isSeq(), 0);
     task.start();
@@ -196,6 +200,7 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endFile();
     }
     Assert.assertFalse(TsFileResourceUtils.validateTsFileDataCorrectness(resource));
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
     RepairUnsortedFileCompactionTask task =
         new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, resource.isSeq(), 0);
     task.start();
@@ -224,6 +229,7 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endFile();
     }
     Assert.assertFalse(TsFileResourceUtils.validateTsFileDataCorrectness(resource));
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
     RepairUnsortedFileCompactionTask task =
         new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, resource.isSeq(), 0);
     task.start();
@@ -252,6 +258,7 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endFile();
     }
     Assert.assertFalse(TsFileResourceUtils.validateTsFileDataCorrectness(resource));
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
     RepairUnsortedFileCompactionTask task =
         new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, resource.isSeq(), 0);
     task.start();
@@ -307,7 +314,7 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
     Assert.assertFalse(task.start());
 
     for (TsFileResource resource : tsFileManager.getTsFileList(true)) {
-      Assert.assertEquals(resource.getTsFileRepairStatus(), TsFileRepairStatus.NEED_TO_REPAIR);
+      Assert.assertTrue(resource.getTsFileRepairStatus().isRepairCompactionCandidate());
     }
 
     long initialFinishedCompactionTaskNum =
@@ -382,7 +389,7 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
     Assert.assertFalse(task.start());
 
     for (TsFileResource resource : tsFileManager.getTsFileList(true)) {
-      Assert.assertEquals(resource.getTsFileRepairStatus(), TsFileRepairStatus.NEED_TO_REPAIR);
+      Assert.assertTrue(resource.getTsFileRepairStatus().isRepairCompactionCandidate());
     }
 
     long initialFinishedCompactionTaskNum =
@@ -458,7 +465,7 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
     Assert.assertFalse(task.start());
 
     for (TsFileResource resource : tsFileManager.getTsFileList(true)) {
-      Assert.assertEquals(resource.getTsFileRepairStatus(), TsFileRepairStatus.NEED_TO_REPAIR);
+      Assert.assertTrue(resource.getTsFileRepairStatus().isRepairCompactionCandidate());
     }
 
     long initialFinishedCompactionTaskNum =
@@ -521,8 +528,9 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
     tsFileManager.addAll(seqResources, true);
     Assert.assertFalse(TsFileResourceUtils.validateTsFileResourcesHasNoOverlap(seqResources));
 
+    seqResource2.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_MOVE);
     RepairUnsortedFileCompactionTask task =
-        new RepairUnsortedFileCompactionTask(0, tsFileManager, seqResource2, true, false, 0);
+        new RepairUnsortedFileCompactionTask(0, tsFileManager, seqResource2, true, 0);
     Assert.assertTrue(task.start());
     Assert.assertEquals(1, tsFileManager.getTsFileList(true).size());
     Assert.assertEquals(1, tsFileManager.getTsFileList(false).size());
@@ -559,9 +567,9 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endChunkGroup();
       writer.endFile();
     }
-    ModificationFile modFile = seqResource2.getModFile();
-    Deletion writedModification =
-        new Deletion(new MeasurementPath("root.testsg.d1.s1"), Long.MAX_VALUE, 15);
+    ModificationFile modFile = seqResource2.getModFileForWrite();
+    ModEntry writedModification =
+        new TreeDeletionEntry(new MeasurementPath("root.testsg.d1.s1"), 15);
     modFile.write(writedModification);
     modFile.close();
 
@@ -571,19 +579,18 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
     tsFileManager.addAll(seqResources, true);
     Assert.assertFalse(TsFileResourceUtils.validateTsFileResourcesHasNoOverlap(seqResources));
 
+    seqResource2.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_MOVE);
     RepairUnsortedFileCompactionTask task =
-        new RepairUnsortedFileCompactionTask(0, tsFileManager, seqResource2, true, false, 0);
+        new RepairUnsortedFileCompactionTask(0, tsFileManager, seqResource2, true, 0);
     Assert.assertTrue(task.start());
     Assert.assertEquals(1, tsFileManager.getTsFileList(true).size());
     Assert.assertEquals(1, tsFileManager.getTsFileList(false).size());
     TsFileResource targetResource = tsFileManager.getTsFileList(false).get(0);
     Assert.assertTrue(TsFileResourceUtils.validateTsFileDataCorrectness(targetResource));
     Assert.assertTrue(TsFileResourceUtils.validateTsFileResourceCorrectness(targetResource));
-    Assert.assertTrue(targetResource.modFileExists());
-    Assert.assertEquals(1, targetResource.getModFile().getModifications().size());
-    Deletion modification =
-        (Deletion) targetResource.getModFile().getModifications().iterator().next();
-    Assert.assertEquals(writedModification.getFileOffset(), modification.getFileOffset());
+    Assert.assertTrue(targetResource.anyModFileExists());
+    Assert.assertEquals(1, targetResource.getAllModEntries().size());
+    ModEntry modification = targetResource.getAllModEntries().iterator().next();
     Assert.assertEquals(writedModification.getEndTime(), modification.getEndTime());
   }
 
@@ -630,10 +637,17 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endChunkGroup();
       writer.endFile();
     }
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
     RepairUnsortedFileCompactionTask task =
-        new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, true, 0);
+        new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, 0);
     Assert.assertTrue(task.getEstimatedMemoryCost() > 0);
-    task = new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, false, 0);
+
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_CHECK);
+    task = new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, false, 0);
+    Assert.assertTrue(task.getEstimatedMemoryCost() > 0);
+
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_MOVE);
+    task = new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, false, 0);
     Assert.assertEquals(0, task.getEstimatedMemoryCost());
   }
 
@@ -657,14 +671,15 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endChunkGroup();
       writer.endFile();
     }
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
     RepairUnsortedFileCompactionTask task =
-        new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, true, 0);
+        new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, 0);
     Assert.assertTrue(task.start());
     TsFileResource target = tsFileManager.getTsFileList(false).get(0);
     try (TsFileSequenceReader reader = new TsFileSequenceReader(target.getTsFilePath())) {
       List<AlignedChunkMetadata> chunkMetadataList =
           reader.getAlignedChunkMetadata(
-              IDeviceID.Factory.DEFAULT_FACTORY.create("root.testsg.d1"));
+              IDeviceID.Factory.DEFAULT_FACTORY.create("root.testsg.d1"), true);
       for (AlignedChunkMetadata alignedChunkMetadata : chunkMetadataList) {
         ChunkMetadata timeChunkMetadata =
             (ChunkMetadata) alignedChunkMetadata.getTimeChunkMetadata();
@@ -692,6 +707,71 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
   }
 
   @Test
+  public void testRepairFilesWithCheck1() throws IOException {
+    TsFileResource resource = createEmptyFileAndResource(true);
+    try (CompactionTestFileWriter writer = new CompactionTestFileWriter(resource)) {
+      writer.startChunkGroup("d1");
+      writer.generateSimpleAlignedSeriesToCurrentDeviceWithNullValue(
+          Arrays.asList("s1", "s2", "s3"),
+          new TimeRange[][] {new TimeRange[] {new TimeRange(10, 20)}},
+          TSEncoding.PLAIN,
+          CompressionType.LZ4,
+          Arrays.asList(true, false, false));
+      writer.endChunkGroup();
+      writer.endFile();
+    }
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_CHECK);
+    RepairUnsortedFileCompactionTask task =
+        new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, 0);
+    Assert.assertTrue(task.start());
+    Assert.assertEquals(
+        resource.getTsFileRepairStatus(), TsFileRepairStatus.NEED_TO_REPAIR_BY_MOVE);
+  }
+
+  @Test
+  public void testRepairFilesWithCheck2() throws IOException {
+    TsFileResource resource = createEmptyFileAndResource(true);
+    try (CompactionTestFileWriter writer = new CompactionTestFileWriter(resource)) {
+      writer.startChunkGroup("d1");
+      writer.generateSimpleAlignedSeriesToCurrentDeviceWithNullValue(
+          Arrays.asList("s1", "s2", "s3"),
+          new TimeRange[][] {new TimeRange[] {new TimeRange(10, 20), new TimeRange(1, 10)}},
+          TSEncoding.PLAIN,
+          CompressionType.LZ4,
+          Arrays.asList(true, false, false));
+      writer.endChunkGroup();
+      writer.endFile();
+    }
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_CHECK);
+    RepairUnsortedFileCompactionTask task =
+        new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, 0);
+    Assert.assertTrue(task.start());
+    Assert.assertEquals(
+        resource.getTsFileRepairStatus(), TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
+  }
+
+  @Test
+  public void testRepairFilesWithCheck3() throws IOException {
+    TsFileResource resource = createEmptyFileAndResource(false);
+    try (CompactionTestFileWriter writer = new CompactionTestFileWriter(resource)) {
+      writer.startChunkGroup("d1");
+      writer.generateSimpleAlignedSeriesToCurrentDeviceWithNullValue(
+          Arrays.asList("s1", "s2", "s3"),
+          new TimeRange[][] {new TimeRange[] {new TimeRange(10, 20)}},
+          TSEncoding.PLAIN,
+          CompressionType.LZ4,
+          Arrays.asList(true, false, false));
+      writer.endChunkGroup();
+      writer.endFile();
+    }
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_CHECK);
+    RepairUnsortedFileCompactionTask task =
+        new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, 0);
+    Assert.assertTrue(task.start());
+    Assert.assertEquals(resource.getTsFileRepairStatus(), TsFileRepairStatus.NORMAL);
+  }
+
+  @Test
   public void testSplitChunk() throws IOException {
     TsFileResource resource = createEmptyFileAndResource(true);
     try (CompactionTestFileWriter writer = new CompactionTestFileWriter(resource)) {
@@ -705,14 +785,15 @@ public class RepairUnsortedFileCompactionTest extends AbstractRepairDataTest {
       writer.endChunkGroup();
       writer.endFile();
     }
+    resource.setTsFileRepairStatus(TsFileRepairStatus.NEED_TO_REPAIR_BY_REWRITE);
     RepairUnsortedFileCompactionTask task =
-        new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, true, 0);
+        new RepairUnsortedFileCompactionTask(0, tsFileManager, resource, true, 0);
     Assert.assertTrue(task.start());
     TsFileResource target = tsFileManager.getTsFileList(false).get(0);
     try (TsFileSequenceReader reader = new TsFileSequenceReader(target.getTsFilePath())) {
       List<AlignedChunkMetadata> chunkMetadataList =
           reader.getAlignedChunkMetadata(
-              IDeviceID.Factory.DEFAULT_FACTORY.create("root.testsg.d1"));
+              IDeviceID.Factory.DEFAULT_FACTORY.create("root.testsg.d1"), true);
       Assert.assertEquals(3, chunkMetadataList.size());
     }
   }

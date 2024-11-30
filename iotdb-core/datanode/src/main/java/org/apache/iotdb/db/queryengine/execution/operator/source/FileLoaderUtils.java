@@ -25,7 +25,7 @@ import org.apache.iotdb.db.queryengine.execution.fragment.QueryContext;
 import org.apache.iotdb.db.queryengine.metric.SeriesScanCostMetricSet;
 import org.apache.iotdb.db.storageengine.buffer.TimeSeriesMetadataCache;
 import org.apache.iotdb.db.storageengine.buffer.TimeSeriesMetadataCache.TimeSeriesMetadataCacheKey;
-import org.apache.iotdb.db.storageengine.dataregion.modification.Modification;
+import org.apache.iotdb.db.storageengine.dataregion.modification.ModEntry;
 import org.apache.iotdb.db.storageengine.dataregion.read.reader.chunk.DiskAlignedChunkLoader;
 import org.apache.iotdb.db.storageengine.dataregion.read.reader.chunk.DiskChunkLoader;
 import org.apache.iotdb.db.storageengine.dataregion.read.reader.chunk.metadata.DiskAlignedChunkMetadataLoader;
@@ -51,7 +51,6 @@ import org.apache.tsfile.read.reader.IPageReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -103,10 +102,11 @@ public class FileLoaderUtils {
                         seriesPath.getMeasurement()),
                     allSensors,
                     resource.getTimeIndexType() == ITimeIndex.FILE_TIME_INDEX_TYPE,
-                    context.isDebug());
+                    context.isDebug(),
+                    context);
         if (timeSeriesMetadata != null) {
           long t2 = System.nanoTime();
-          List<Modification> pathModifications =
+          List<ModEntry> pathModifications =
               context.getPathModifications(
                   resource, seriesPath.getDeviceId(), seriesPath.getMeasurement());
           timeSeriesMetadata.setModified(!pathModifications.isEmpty());
@@ -264,8 +264,7 @@ public class FileLoaderUtils {
     // the order of timeSeriesMetadata list is same as subSensorList's order
     TimeSeriesMetadataCache cache = TimeSeriesMetadataCache.getInstance();
     List<String> valueMeasurementList = alignedPath.getMeasurementList();
-    Set<String> allSensors = new HashSet<>(valueMeasurementList);
-    allSensors.add("");
+    Set<String> allSensors = alignedPath.getAllSensors();
     boolean isDebug = context.isDebug();
     String filePath = resource.getTsFilePath();
     IDeviceID deviceId = alignedPath.getDeviceId();
@@ -278,7 +277,8 @@ public class FileLoaderUtils {
             new TimeSeriesMetadataCacheKey(resource.getTsFileID(), deviceId, ""),
             allSensors,
             resource.getTimeIndexType() == ITimeIndex.FILE_TIME_INDEX_TYPE,
-            isDebug);
+            isDebug,
+            context);
     if (timeColumn != null) {
       // only need time column, like count_time aggregation
       if (valueMeasurementList.isEmpty()) {
@@ -306,7 +306,8 @@ public class FileLoaderUtils {
                       resource.getTsFileID(), deviceId, valueMeasurement),
                   allSensors,
                   resource.getTimeIndexType() == ITimeIndex.FILE_TIME_INDEX_TYPE,
-                  isDebug);
+                  isDebug,
+                  context);
           exist = (exist || (valueColumn != null));
           valueTimeSeriesMetadataList.add(valueColumn);
         }
@@ -337,7 +338,7 @@ public class FileLoaderUtils {
     long startTime = System.nanoTime();
 
     // deal with time column
-    List<Modification> timeModifications =
+    List<ModEntry> timeModifications =
         context.getPathModifications(
             resource, alignedPath.getDeviceId(), timeColumnMetadata.getMeasurementId());
     // all rows are deleted, just return null to skip device data in this file
@@ -356,11 +357,11 @@ public class FileLoaderUtils {
 
     // deal with value columns
     boolean hasNonNullValueColumns = false;
-    List<List<Modification>> valueColumnsModifications = new ArrayList<>();
+    List<List<ModEntry>> valueColumnsModifications = new ArrayList<>();
     for (int i = 0, size = valueColumnMetadataList.size(); i < size; i++) {
       TimeseriesMetadata valueColumnMetadata = valueColumnMetadataList.get(i);
       if (valueColumnMetadata != null) {
-        List<Modification> modifications =
+        List<ModEntry> modifications =
             context.getPathModifications(
                 resource, alignedPath.getDeviceId(), valueColumnMetadata.getMeasurementId());
         valueColumnMetadata.setModified(!modifications.isEmpty());

@@ -23,6 +23,7 @@ import org.apache.iotdb.commons.consensus.index.ProgressIndex;
 import org.apache.iotdb.commons.consensus.index.ProgressIndexType;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.tsfile.utils.RamUsageEstimator;
 import org.apache.tsfile.utils.ReadWriteIOUtils;
 
 import javax.annotation.Nonnull;
@@ -31,42 +32,42 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class HybridProgressIndex extends ProgressIndex {
 
+  private static final long INSTANCE_SIZE =
+      RamUsageEstimator.shallowSizeOfInstance(HybridProgressIndex.class) + ProgressIndex.LOCK_SIZE;
+  private static final long ENTRY_SIZE =
+      RamUsageEstimator.HASHTABLE_RAM_BYTES_PER_ENTRY
+          + RamUsageEstimator.alignObjectSize(Short.BYTES);
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
   private final Map<Short, ProgressIndex> type2Index;
 
   private HybridProgressIndex() {
-    this.type2Index = new HashMap<>();
+    this(Collections.emptyMap());
   }
 
-  public HybridProgressIndex(ProgressIndex progressIndex) {
-    short type = progressIndex.getType().getType();
-    this.type2Index = new HashMap<>();
-    if (ProgressIndexType.HYBRID_PROGRESS_INDEX.getType() != type) {
-      this.type2Index.put(type, progressIndex.deepCopy());
-    } else {
-      for (Entry<Short, ProgressIndex> entry :
-          ((HybridProgressIndex) progressIndex).type2Index.entrySet()) {
-        this.type2Index.put(entry.getKey(), entry.getValue().deepCopy());
-      }
-    }
+  public HybridProgressIndex(final ProgressIndex progressIndex) {
+    this(Collections.singletonMap(progressIndex.getType().getType(), progressIndex));
+  }
+
+  private HybridProgressIndex(final Map<Short, ProgressIndex> type2Index) {
+    this.type2Index = new HashMap<>(type2Index);
   }
 
   public Map<Short, ProgressIndex> getType2Index() {
-    return ImmutableMap.copyOf(((HybridProgressIndex) deepCopy()).type2Index);
+    return ImmutableMap.copyOf(type2Index);
   }
 
   @Override
-  public void serialize(ByteBuffer byteBuffer) {
+  public void serialize(final ByteBuffer byteBuffer) {
     lock.readLock().lock();
     try {
       ProgressIndexType.HYBRID_PROGRESS_INDEX.serialize(byteBuffer);
@@ -82,7 +83,7 @@ public class HybridProgressIndex extends ProgressIndex {
   }
 
   @Override
-  public void serialize(OutputStream stream) throws IOException {
+  public void serialize(final OutputStream stream) throws IOException {
     lock.readLock().lock();
     try {
       ProgressIndexType.HYBRID_PROGRESS_INDEX.serialize(stream);
@@ -98,7 +99,7 @@ public class HybridProgressIndex extends ProgressIndex {
   }
 
   @Override
-  public boolean isAfter(@Nonnull ProgressIndex progressIndex) {
+  public boolean isAfter(@Nonnull final ProgressIndex progressIndex) {
     lock.readLock().lock();
     try {
       if (progressIndex instanceof MinimumProgressIndex) {
@@ -126,14 +127,14 @@ public class HybridProgressIndex extends ProgressIndex {
     }
   }
 
-  public boolean isGivenProgressIndexAfterSelf(ProgressIndex progressIndex) {
+  public boolean isGivenProgressIndexAfterSelf(final ProgressIndex progressIndex) {
     return type2Index.size() == 1
         && type2Index.containsKey(progressIndex.getType().getType())
         && progressIndex.isAfter(type2Index.get(progressIndex.getType().getType()));
   }
 
   @Override
-  public boolean equals(ProgressIndex progressIndex) {
+  public boolean equals(final ProgressIndex progressIndex) {
     lock.readLock().lock();
     try {
       if (!(progressIndex instanceof HybridProgressIndex)) {
@@ -157,7 +158,7 @@ public class HybridProgressIndex extends ProgressIndex {
   }
 
   @Override
-  public boolean equals(Object obj) {
+  public boolean equals(final Object obj) {
     if (obj == null) {
       return false;
     }
@@ -176,12 +177,8 @@ public class HybridProgressIndex extends ProgressIndex {
   }
 
   @Override
-  public ProgressIndex deepCopy() {
-    return new HybridProgressIndex(this);
-  }
-
-  @Override
-  public ProgressIndex updateToMinimumEqualOrIsAfterProgressIndex(ProgressIndex progressIndex) {
+  public ProgressIndex updateToMinimumEqualOrIsAfterProgressIndex(
+      final ProgressIndex progressIndex) {
     lock.writeLock().lock();
     try {
       if (progressIndex == null || progressIndex instanceof MinimumProgressIndex) {
@@ -189,30 +186,33 @@ public class HybridProgressIndex extends ProgressIndex {
       }
 
       if (progressIndex instanceof StateProgressIndex) {
-        return progressIndex.deepCopy().updateToMinimumEqualOrIsAfterProgressIndex(this);
+        return progressIndex.updateToMinimumEqualOrIsAfterProgressIndex(this);
       }
 
       if (!(progressIndex instanceof HybridProgressIndex)) {
+        final Map<Short, ProgressIndex> type2Index = new HashMap<>(this.type2Index);
         type2Index.compute(
             progressIndex.getType().getType(),
             (thisK, thisV) ->
                 (thisV == null
-                    ? progressIndex.deepCopy()
+                    ? progressIndex
                     : thisV.updateToMinimumEqualOrIsAfterProgressIndex(progressIndex)));
-        return this;
+        return new HybridProgressIndex(type2Index);
       }
 
       final HybridProgressIndex thisHybridProgressIndex = this;
       final HybridProgressIndex thatHybridProgressIndex = (HybridProgressIndex) progressIndex;
+      final Map<Short, ProgressIndex> type2Index =
+          new HashMap<>(thisHybridProgressIndex.type2Index);
       thatHybridProgressIndex.type2Index.forEach(
           (thatK, thatV) ->
-              thisHybridProgressIndex.type2Index.compute(
+              type2Index.compute(
                   thatK,
                   (thisK, thisV) ->
                       (thisV == null
-                          ? thatV.deepCopy()
+                          ? thatV
                           : thisV.updateToMinimumEqualOrIsAfterProgressIndex(thatV))));
-      return this;
+      return new HybridProgressIndex(type2Index);
     } finally {
       lock.writeLock().unlock();
     }
@@ -236,7 +236,7 @@ public class HybridProgressIndex extends ProgressIndex {
     }
   }
 
-  public static HybridProgressIndex deserializeFrom(ByteBuffer byteBuffer) {
+  public static HybridProgressIndex deserializeFrom(final ByteBuffer byteBuffer) {
     final HybridProgressIndex hybridProgressIndex = new HybridProgressIndex();
     final int size = ReadWriteIOUtils.readInt(byteBuffer);
     for (int i = 0; i < size; i++) {
@@ -247,7 +247,7 @@ public class HybridProgressIndex extends ProgressIndex {
     return hybridProgressIndex;
   }
 
-  public static HybridProgressIndex deserializeFrom(InputStream stream) throws IOException {
+  public static HybridProgressIndex deserializeFrom(final InputStream stream) throws IOException {
     final HybridProgressIndex hybridProgressIndex = new HybridProgressIndex();
     final int size = ReadWriteIOUtils.readInt(stream);
     for (int i = 0; i < size; i++) {
@@ -261,5 +261,12 @@ public class HybridProgressIndex extends ProgressIndex {
   @Override
   public String toString() {
     return "HybridProgressIndex{" + "type2Index=" + type2Index + '}';
+  }
+
+  @Override
+  public long ramBytesUsed() {
+    return INSTANCE_SIZE
+        + type2Index.size() * ENTRY_SIZE
+        + type2Index.values().stream().map(ProgressIndex::ramBytesUsed).reduce(0L, Long::sum);
   }
 }

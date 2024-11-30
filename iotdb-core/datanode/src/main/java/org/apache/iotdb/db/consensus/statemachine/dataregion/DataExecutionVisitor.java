@@ -27,7 +27,6 @@ import org.apache.iotdb.db.exception.BatchProcessException;
 import org.apache.iotdb.db.exception.WriteProcessException;
 import org.apache.iotdb.db.exception.WriteProcessRejectException;
 import org.apache.iotdb.db.exception.query.OutOfTTLException;
-import org.apache.iotdb.db.pipe.extractor.dataregion.realtime.listener.PipeInsertionDataNodeListener;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.PlanNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.PlanVisitor;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.pipe.PipeEnrichedDeleteDataNode;
@@ -38,6 +37,7 @@ import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertRowNod
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertRowsNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertRowsOfOneDeviceNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertTabletNode;
+import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.RelationalDeleteDataNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.RelationalInsertRowNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.RelationalInsertRowsNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.RelationalInsertTabletNode;
@@ -169,6 +169,9 @@ public class DataExecutionVisitor extends PlanVisitor<TSStatus, DataRegion> {
       dataRegion.insertTablets(node);
       dataRegion.insertSeparatorToWAL();
       return StatusUtils.OK;
+    } catch (WriteProcessRejectException e) {
+      LOGGER.warn("Reject in executing plan node: {}, caused by {}", node, e.getMessage());
+      return RpcUtils.getStatus(e.getErrorCode(), e.getMessage());
     } catch (BatchProcessException e) {
       LOGGER.warn("Batch failure in executing a InsertMultiTabletsNode.");
       TSStatus firstStatus = null;
@@ -249,20 +252,25 @@ public class DataExecutionVisitor extends PlanVisitor<TSStatus, DataRegion> {
               "now try to delete directly, databasePath: {}, deletePath:{}",
               databaseToDelete.getFullPath(),
               path.getFullPath());
-          dataRegion.deleteDataDirectly(
-              databaseToDelete,
-              node.getDeleteStartTime(),
-              node.getDeleteEndTime(),
-              node.getSearchIndex());
+          dataRegion.deleteDataDirectly(databaseToDelete, node);
         } else {
-          dataRegion.deleteByDevice(
-              path, node.getDeleteStartTime(), node.getDeleteEndTime(), node.getSearchIndex());
+          dataRegion.deleteByDevice(path, node);
         }
       }
       dataRegion.insertSeparatorToWAL();
-      PipeInsertionDataNodeListener.getInstance().listenToDeleteData(node);
       return StatusUtils.OK;
     } catch (IOException | IllegalPathException e) {
+      LOGGER.error("Error in executing plan node: {}", node, e);
+      return new TSStatus(TSStatusCode.WRITE_PROCESS_ERROR.getStatusCode());
+    }
+  }
+
+  @Override
+  public TSStatus visitDeleteData(RelationalDeleteDataNode node, DataRegion dataRegion) {
+    try {
+      dataRegion.deleteByTable(node);
+      return StatusUtils.OK;
+    } catch (IOException e) {
       LOGGER.error("Error in executing plan node: {}", node, e);
       return new TSStatus(TSStatusCode.WRITE_PROCESS_ERROR.getStatusCode());
     }

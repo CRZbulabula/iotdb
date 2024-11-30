@@ -135,27 +135,36 @@ public class AINodeBasicIT {
     try (Connection connection = EnvFactory.getEnv().getConnection();
         Statement statement = connection.createStatement()) {
       statement.execute(registerSql);
-      try (ResultSet resultSet = statement.executeQuery(showSql)) {
-        ResultSetMetaData resultSetMetaData = resultSet.getMetaData();
-        checkHeader(resultSetMetaData, "ModelId,ModelType,State,Configs,Notes");
-        int count = 0;
-        while (resultSet.next()) {
-          String modelName = resultSet.getString(1);
-          String modelType = resultSet.getString(2);
-          String status = resultSet.getString(3);
+      boolean loading = true;
+      int count = 0;
+      while (loading) {
+        try (ResultSet resultSet = statement.executeQuery(showSql)) {
+          ResultSetMetaData resultSetMetaData = resultSet.getMetaData();
+          checkHeader(resultSetMetaData, "ModelId,ModelType,State,Configs,Notes");
+          while (resultSet.next()) {
+            String modelName = resultSet.getString(1);
+            String modelType = resultSet.getString(2);
+            String status = resultSet.getString(3);
 
-          assertEquals("operationTest", modelName);
-          assertEquals("USER_DEFINED", modelType);
-          assertEquals("ACTIVE", status);
-          count++;
+            assertEquals("operationTest", modelName);
+            assertEquals("USER_DEFINED", modelType);
+            if (status.equals("ACTIVE")) {
+              loading = false;
+              count++;
+            } else if (status.equals("LOADING")) {
+              break;
+            } else {
+              fail("Unexpected status of model: " + status);
+            }
+          }
         }
-        assertEquals(1, count);
       }
+      assertEquals(1, count);
       statement.execute(dropSql);
       try (ResultSet resultSet = statement.executeQuery(showSql)) {
         ResultSetMetaData resultSetMetaData = resultSet.getMetaData();
         checkHeader(resultSetMetaData, "ModelId,ModelType,State,Configs,Notes");
-        int count = 0;
+        count = 0;
         while (resultSet.next()) {
           count++;
         }
@@ -170,6 +179,8 @@ public class AINodeBasicIT {
   public void callInferenceTest() {
     String sql = "CALL INFERENCE(identity, \"select s0,s1,s2 from root.AI.data\")";
     String sql2 = "CALL INFERENCE(identity, \"select s2,s0,s1 from root.AI.data\")";
+    String sql3 =
+        "CALL INFERENCE(_NaiveForecaster, \"select s0 from root.AI.data\", predict_length=3)";
     try (Connection connection = EnvFactory.getEnv().getConnection();
         Statement statement = connection.createStatement()) {
 
@@ -206,6 +217,17 @@ public class AINodeBasicIT {
         }
         assertEquals(7, count);
       }
+
+      try (ResultSet resultSet = statement.executeQuery(sql3)) {
+        ResultSetMetaData resultSetMetaData = resultSet.getMetaData();
+        checkHeader(resultSetMetaData, "output0,output1,output2");
+        int count = 0;
+        while (resultSet.next()) {
+          count++;
+        }
+        assertEquals(3, count);
+      }
+
     } catch (SQLException e) {
       fail(e.getMessage());
     }

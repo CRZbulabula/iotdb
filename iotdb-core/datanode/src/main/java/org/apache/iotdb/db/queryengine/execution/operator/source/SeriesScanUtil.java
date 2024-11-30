@@ -49,6 +49,7 @@ import org.apache.tsfile.read.filter.basic.Filter;
 import org.apache.tsfile.read.reader.IPageReader;
 import org.apache.tsfile.read.reader.IPointReader;
 import org.apache.tsfile.read.reader.page.AlignedPageReader;
+import org.apache.tsfile.read.reader.page.TablePageReader;
 import org.apache.tsfile.read.reader.series.PaginationController;
 import org.apache.tsfile.utils.Accountable;
 import org.apache.tsfile.utils.RamUsageEstimator;
@@ -177,7 +178,24 @@ public class SeriesScanUtil implements Accountable {
     this.dataSource = dataSource;
 
     // updated filter concerning TTL
-    scanOptions.setTTL(DataNodeTTLCache.getInstance().getTTL(seriesPath.getDeviceId()));
+    long ttl;
+    // Only the data in the table model needs to retain rows where all value
+    // columns are null values, so we can use isIgnoreAllNullRows to
+    // differentiate the data of tree model and table model.
+    if (context.isIgnoreAllNullRows()) {
+      ttl = DataNodeTTLCache.getInstance().getTTLForTree(deviceID);
+      scanOptions.setTTL(ttl);
+    } else {
+      if (scanOptions.timeFilterNeedUpdatedByTll()) {
+        String databaseName = dataSource.getDatabaseName();
+        ttl =
+            databaseName == null
+                ? Long.MAX_VALUE
+                : DataNodeTTLCache.getInstance()
+                    .getTTLForTable(databaseName, deviceID.getTableName());
+        scanOptions.setTTL(ttl);
+      }
+    }
 
     // init file index
     orderUtils.setCurSeqFileIndex(dataSource);
@@ -1211,7 +1229,10 @@ public class SeriesScanUtil implements Accountable {
       this.version = new MergeReaderPriority(fileTimestamp, version, offset, isSeq);
       this.data = data;
       this.isSeq = isSeq;
-      this.isAligned = data instanceof AlignedPageReader || data instanceof MemAlignedPageReader;
+      this.isAligned =
+          data instanceof AlignedPageReader
+              || data instanceof MemAlignedPageReader
+              || data instanceof TablePageReader;
       this.isMem = data instanceof MemPageReader || data instanceof MemAlignedPageReader;
     }
 

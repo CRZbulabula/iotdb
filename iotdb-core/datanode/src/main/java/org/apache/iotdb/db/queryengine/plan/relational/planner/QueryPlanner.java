@@ -13,26 +13,34 @@
  */
 package org.apache.iotdb.db.queryengine.plan.relational.planner;
 
+import org.apache.iotdb.db.exception.sql.SemanticException;
 import org.apache.iotdb.db.queryengine.common.MPPQueryContext;
 import org.apache.iotdb.db.queryengine.common.QueryId;
 import org.apache.iotdb.db.queryengine.common.SessionInfo;
-import org.apache.iotdb.db.queryengine.plan.analyze.TypeProvider;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.PlanNode;
 import org.apache.iotdb.db.queryengine.plan.relational.analyzer.Analysis;
 import org.apache.iotdb.db.queryengine.plan.relational.analyzer.Analysis.GroupingSetAnalysis;
 import org.apache.iotdb.db.queryengine.plan.relational.analyzer.FieldId;
 import org.apache.iotdb.db.queryengine.plan.relational.analyzer.NodeRef;
+import org.apache.iotdb.db.queryengine.plan.relational.planner.ir.GapFillStartAndEndTimeExtractVisitor;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.AggregationNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.AggregationNode.Aggregation;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.FilterNode;
+import org.apache.iotdb.db.queryengine.plan.relational.planner.node.GapFillNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.LimitNode;
+import org.apache.iotdb.db.queryengine.plan.relational.planner.node.LinearFillNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.OffsetNode;
+import org.apache.iotdb.db.queryengine.plan.relational.planner.node.PreviousFillNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.ProjectNode;
 import org.apache.iotdb.db.queryengine.plan.relational.planner.node.SortNode;
+import org.apache.iotdb.db.queryengine.plan.relational.planner.node.ValueFillNode;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Cast;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Delete;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Expression;
+import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.FieldReference;
+import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Fill;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.FunctionCall;
+import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.LongLiteral;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Node;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Offset;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.OrderBy;
@@ -47,6 +55,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import org.apache.tsfile.read.common.type.Type;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -71,6 +82,9 @@ import static java.util.Objects.requireNonNull;
 import static org.apache.iotdb.db.queryengine.plan.relational.planner.OrderingTranslator.sortItemToSortOrder;
 import static org.apache.iotdb.db.queryengine.plan.relational.planner.PlanBuilder.newPlanBuilder;
 import static org.apache.iotdb.db.queryengine.plan.relational.planner.ScopeAware.scopeAwareKey;
+import static org.apache.iotdb.db.queryengine.plan.relational.planner.SortOrder.ASC_NULLS_LAST;
+import static org.apache.iotdb.db.queryengine.plan.relational.planner.SymbolAllocator.GROUP_KEY_SUFFIX;
+import static org.apache.iotdb.db.queryengine.plan.relational.planner.ir.GapFillStartAndEndTimeExtractVisitor.CAN_NOT_INFER_TIME_RANGE;
 import static org.apache.iotdb.db.queryengine.plan.relational.planner.node.AggregationNode.groupingSets;
 
 public class QueryPlanner {
@@ -115,6 +129,8 @@ public class QueryPlanner {
   public RelationPlan plan(Query query) {
     PlanBuilder builder = planQueryBody(query.getQueryBody());
 
+    builder = fill(builder, query.getFill());
+
     // TODO result is :input[0], :input[1], :input[2]
     List<Analysis.SelectExpression> selectExpressions = analysis.getSelectExpressions(query);
     List<Expression> outputs =
@@ -128,7 +144,6 @@ public class QueryPlanner {
           builder.appendProjections(
               Iterables.concat(orderBy, outputs), symbolAllocator, queryContext);
     }
-
     Optional<OrderingScheme> orderingScheme =
         orderingScheme(builder, query.getOrderBy(), analysis.getOrderByExpressions(query));
     builder = sort(builder, orderingScheme);
@@ -137,15 +152,41 @@ public class QueryPlanner {
     builder = builder.appendProjections(outputs, symbolAllocator, queryContext);
 
     return new RelationPlan(
-        builder.getRoot(), analysis.getScope(query), computeOutputs(builder, outputs));
+        builder.getRoot(),
+        analysis.getScope(query),
+        computeOutputs(builder, outputs),
+        outerContext);
   }
 
   public RelationPlan plan(QuerySpecification node) {
     PlanBuilder builder = planFrom(node);
 
     builder = filter(builder, analysis.getWhere(node));
+    Expression wherePredicate = null;
+    if (builder.getRoot() instanceof FilterNode) {
+      wherePredicate = ((FilterNode) builder.getRoot()).getPredicate();
+    }
+
+    Symbol timeColumnForGapFill = null;
+    FunctionCall gapFillColumn = analysis.getGapFill(node);
+    if (gapFillColumn != null) {
+      timeColumnForGapFill = builder.translate((Expression) gapFillColumn.getChildren().get(2));
+    }
     builder = aggregate(builder, node);
     builder = filter(builder, analysis.getHaving(node));
+
+    if (gapFillColumn != null) {
+      if (wherePredicate == null) {
+        throw new SemanticException(CAN_NOT_INFER_TIME_RANGE);
+      }
+      builder =
+          gapFill(
+              builder,
+              timeColumnForGapFill,
+              gapFillColumn,
+              analysis.getGapFillGroupingKeys(node),
+              wherePredicate);
+    }
 
     List<Analysis.SelectExpression> selectExpressions = analysis.getSelectExpressions(node);
 
@@ -161,6 +202,23 @@ public class QueryPlanner {
     }
 
     List<Expression> outputs = outputExpressions(selectExpressions);
+
+    if (node.getFill().isPresent()) {
+      // Add projections for the outputs of SELECT, but stack them on top of the ones from the FROM
+      // clause so both are visible
+      // when resolving the ORDER BY clause.
+      builder = builder.appendProjections(outputs, symbolAllocator, queryContext);
+      // The new scope is the composite of the fields from the FROM and SELECT clause (local nested
+      // scopes). Fields from the bottom of
+      // the scope stack need to be placed first to match the expected layout for nested scopes.
+      List<Symbol> newFields = new ArrayList<>(builder.getTranslations().getFieldSymbolsList());
+
+      outputs.stream().map(builder::translate).forEach(newFields::add);
+
+      builder = builder.withScope(analysis.getScope(node.getFill().get()), newFields);
+      builder = fill(builder, node.getFill());
+    }
+
     if (node.getOrderBy().isPresent()) {
       // ORDER BY requires outputs of SELECT to be visible.
       // For queries with aggregation, it also requires grouping keys and translated aggregations.
@@ -205,9 +263,7 @@ public class QueryPlanner {
     builder = builder.appendProjections(outputs, symbolAllocator, queryContext);
 
     return new RelationPlan(
-        builder.getRoot(), analysis.getScope(node), computeOutputs(builder, outputs));
-
-    // TODO handle aggregate, having, distinct, subQuery later
+        builder.getRoot(), analysis.getScope(node), computeOutputs(builder, outputs), outerContext);
   }
 
   private static boolean hasExpressionsToUnfold(List<Analysis.SelectExpression> selectExpressions) {
@@ -317,8 +373,7 @@ public class QueryPlanner {
 
     Function<Expression, Expression> rewrite = subPlan.getTranslations()::rewrite;
 
-    GroupingSetsPlan groupingSets =
-        planGroupingSets(subPlan, node, groupingSetAnalysis, queryContext.getTypeProvider());
+    GroupingSetsPlan groupingSets = planGroupingSets(subPlan, node, groupingSetAnalysis);
 
     return planAggregation(
         groupingSets.getSubPlan(),
@@ -329,10 +384,7 @@ public class QueryPlanner {
   }
 
   private GroupingSetsPlan planGroupingSets(
-      PlanBuilder subPlan,
-      QuerySpecification node,
-      GroupingSetAnalysis groupingSetAnalysis,
-      TypeProvider typeProvider) {
+      PlanBuilder subPlan, QuerySpecification node, GroupingSetAnalysis groupingSetAnalysis) {
     Map<Symbol, Symbol> groupingSetMappings = new LinkedHashMap<>();
 
     // Compute a set of artificial columns that will contain the values of the original columns
@@ -341,7 +393,7 @@ public class QueryPlanner {
     Symbol[] fields = new Symbol[subPlan.getTranslations().getFieldSymbolsList().size()];
     for (FieldId field : groupingSetAnalysis.getAllFields()) {
       Symbol input = subPlan.getTranslations().getFieldSymbolsList().get(field.getFieldIndex());
-      Symbol output = symbolAllocator.newSymbol(input, "gid");
+      Symbol output = symbolAllocator.newSymbol(input, GROUP_KEY_SUFFIX);
       fields[field.getFieldIndex()] = output;
       groupingSetMappings.put(output, input);
     }
@@ -351,10 +403,10 @@ public class QueryPlanner {
       if (!complexExpressions.containsKey(
           scopeAwareKey(expression, analysis, subPlan.getScope()))) {
         Symbol input = subPlan.translate(expression);
-        Symbol output = symbolAllocator.newSymbol(expression, analysis.getType(expression), "gid");
+        Symbol output =
+            symbolAllocator.newSymbol(expression, analysis.getType(expression), GROUP_KEY_SUFFIX);
         complexExpressions.put(scopeAwareKey(expression, analysis, subPlan.getScope()), output);
         groupingSetMappings.put(output, input);
-        typeProvider.putTableModelType(output, typeProvider.getTableModelType(input));
       }
     }
 
@@ -475,13 +527,6 @@ public class QueryPlanner {
             AggregationNode.Step.SINGLE,
             Optional.empty(),
             groupIdSymbol);
-    aggregationNode
-        .getAggregations()
-        .forEach(
-            (k, v) ->
-                queryContext
-                    .getTypeProvider()
-                    .putTableModelType(k, v.getResolvedFunction().getSignature().getReturnType()));
 
     return new PlanBuilder(
         subPlan
@@ -612,6 +657,143 @@ public class QueryPlanner {
             new ProjectNode(idAllocator.genPlanNodeId(), subPlan.getRoot(), assignments.build()));
 
     return new PlanAndMappings(subPlan, mappings);
+  }
+
+  private PlanBuilder gapFill(
+      PlanBuilder subPlan,
+      @Nonnull Symbol timeColumn,
+      @Nonnull FunctionCall gapFillColumn,
+      @Nonnull List<Expression> gapFillGroupingKeys,
+      @Nonnull Expression wherePredicate) {
+    Symbol gapFillColumnSymbol = subPlan.translate(gapFillColumn);
+    List<Symbol> groupingKeys = new ArrayList<>(gapFillGroupingKeys.size());
+    subPlan = fillGroup(subPlan, gapFillGroupingKeys, groupingKeys, gapFillColumnSymbol);
+
+    int monthDuration = (int) ((LongLiteral) gapFillColumn.getChildren().get(0)).getParsedValue();
+    long nonMonthDuration = ((LongLiteral) gapFillColumn.getChildren().get(1)).getParsedValue();
+    long origin = ((LongLiteral) gapFillColumn.getChildren().get(3)).getParsedValue();
+    long[] startAndEndTime =
+        getStartTimeAndEndTimeOfGapFill(
+            timeColumn, wherePredicate, origin, monthDuration, nonMonthDuration);
+    return subPlan.withNewRoot(
+        new GapFillNode(
+            queryIdAllocator.genPlanNodeId(),
+            subPlan.getRoot(),
+            startAndEndTime[0],
+            startAndEndTime[1],
+            monthDuration,
+            nonMonthDuration,
+            gapFillColumnSymbol,
+            groupingKeys));
+  }
+
+  // both gapFillColumnSymbol and wherePredicate have already been translated.
+  private long[] getStartTimeAndEndTimeOfGapFill(
+      Symbol timeColumn,
+      Expression wherePredicate,
+      long origin,
+      int monthDuration,
+      long nonMonthDuration) {
+    GapFillStartAndEndTimeExtractVisitor.Context context =
+        new GapFillStartAndEndTimeExtractVisitor.Context();
+    GapFillStartAndEndTimeExtractVisitor visitor =
+        new GapFillStartAndEndTimeExtractVisitor(timeColumn);
+    if (!Boolean.TRUE.equals(wherePredicate.accept(visitor, context))) {
+      throw new SemanticException(CAN_NOT_INFER_TIME_RANGE);
+    } else {
+      return context.getTimeRange(
+          origin, monthDuration, nonMonthDuration, queryContext.getZoneId());
+    }
+  }
+
+  private PlanBuilder fill(PlanBuilder subPlan, Optional<Fill> fill) {
+    if (!fill.isPresent()) {
+      return subPlan;
+    }
+
+    List<Symbol> groupingKeys = null;
+    switch (fill.get().getFillMethod()) {
+      case PREVIOUS:
+        Analysis.PreviousFillAnalysis previousFillAnalysis =
+            (Analysis.PreviousFillAnalysis) analysis.getFill(fill.get());
+        Symbol previousFillHelperColumn = null;
+        if (previousFillAnalysis.getFieldReference().isPresent()) {
+          previousFillHelperColumn =
+              subPlan.translate(previousFillAnalysis.getFieldReference().get());
+        }
+
+        if (previousFillAnalysis.getGroupingKeys().isPresent()) {
+          List<FieldReference> fieldReferenceList = previousFillAnalysis.getGroupingKeys().get();
+          groupingKeys = new ArrayList<>(fieldReferenceList.size());
+          subPlan = fillGroup(subPlan, fieldReferenceList, groupingKeys, previousFillHelperColumn);
+        }
+
+        return subPlan.withNewRoot(
+            new PreviousFillNode(
+                queryIdAllocator.genPlanNodeId(),
+                subPlan.getRoot(),
+                previousFillAnalysis.getTimeBound().orElse(null),
+                previousFillHelperColumn,
+                groupingKeys));
+      case LINEAR:
+        Analysis.LinearFillAnalysis linearFillAnalysis =
+            (Analysis.LinearFillAnalysis) analysis.getFill(fill.get());
+        Symbol helperColumn = subPlan.translate(linearFillAnalysis.getFieldReference());
+        if (linearFillAnalysis.getGroupingKeys().isPresent()) {
+          List<FieldReference> fieldReferenceList = linearFillAnalysis.getGroupingKeys().get();
+          groupingKeys = new ArrayList<>(fieldReferenceList.size());
+          subPlan = fillGroup(subPlan, fieldReferenceList, groupingKeys, helperColumn);
+        }
+        return subPlan.withNewRoot(
+            new LinearFillNode(
+                queryIdAllocator.genPlanNodeId(), subPlan.getRoot(), helperColumn, groupingKeys));
+      case CONSTANT:
+        Analysis.ValueFillAnalysis valueFillAnalysis =
+            (Analysis.ValueFillAnalysis) analysis.getFill(fill.get());
+        return subPlan.withNewRoot(
+            new ValueFillNode(
+                queryIdAllocator.genPlanNodeId(),
+                subPlan.getRoot(),
+                valueFillAnalysis.getFilledValue()));
+      default:
+        throw new IllegalArgumentException("Unknown fill method: " + fill.get().getFillMethod());
+    }
+  }
+
+  // used for gapfill and GROUP_FILL in fill clause
+  private PlanBuilder fillGroup(
+      PlanBuilder subPlan,
+      List<? extends Expression> groupingExpressions,
+      List<Symbol> groupingKeys,
+      @Nullable Symbol timeColumn) {
+    ImmutableList.Builder<Symbol> orderBySymbols = ImmutableList.builder();
+    Map<Symbol, SortOrder> orderings = new HashMap<>();
+    for (Expression expression : groupingExpressions) {
+      Symbol symbol = subPlan.translate(expression);
+      orderings.computeIfAbsent(
+          symbol,
+          k -> {
+            groupingKeys.add(k);
+            orderBySymbols.add(k);
+            // sort order for fill_group should always be ASC_NULLS_LAST, it should be same as
+            // TableOperatorGenerator
+            return ASC_NULLS_LAST;
+          });
+    }
+    if (timeColumn != null) {
+      orderings.computeIfAbsent(
+          timeColumn,
+          k -> {
+            orderBySymbols.add(k);
+            // sort order for fill_group should always be ASC_NULLS_LAST
+            return ASC_NULLS_LAST;
+          });
+    }
+    OrderingScheme orderingScheme = new OrderingScheme(orderBySymbols.build(), orderings);
+    analysis.setSortNode(true);
+    return subPlan.withNewRoot(
+        new SortNode(
+            queryIdAllocator.genPlanNodeId(), subPlan.getRoot(), orderingScheme, false, false));
   }
 
   private Optional<OrderingScheme> orderingScheme(

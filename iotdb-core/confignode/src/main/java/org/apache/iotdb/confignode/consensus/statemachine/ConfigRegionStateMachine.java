@@ -31,6 +31,7 @@ import org.apache.iotdb.commons.file.SystemFileFactory;
 import org.apache.iotdb.confignode.conf.ConfigNodeConfig;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 import org.apache.iotdb.confignode.consensus.request.ConfigPhysicalPlan;
+import org.apache.iotdb.confignode.consensus.request.read.ConfigPhysicalReadPlan;
 import org.apache.iotdb.confignode.exception.physical.UnknownPhysicalPlanTypeException;
 import org.apache.iotdb.confignode.manager.ConfigManager;
 import org.apache.iotdb.confignode.manager.consensus.ConsensusManager;
@@ -124,7 +125,7 @@ public class ConfigRegionStateMachine implements IStateMachine, IStateMachine.Ev
     try {
       result = executor.executeNonQueryPlan(plan);
     } catch (UnknownPhysicalPlanTypeException e) {
-      LOGGER.error(e.getMessage());
+      LOGGER.error("Execute non-query plan failed", e);
       result = new TSStatus(TSStatusCode.INTERNAL_SERVER_ERROR.getStatusCode());
     }
 
@@ -166,17 +167,10 @@ public class ConfigRegionStateMachine implements IStateMachine, IStateMachine.Ev
   }
 
   @Override
-  public DataSet read(IConsensusRequest request) {
-    ConfigPhysicalPlan plan;
-    if (request instanceof ByteBufferConsensusRequest) {
-      try {
-        plan = ConfigPhysicalPlan.Factory.create(request.serializeToByteBuffer());
-      } catch (Exception e) {
-        LOGGER.error("Deserialization error for write plan : {}", request);
-        return null;
-      }
-    } else if (request instanceof ConfigPhysicalPlan) {
-      plan = (ConfigPhysicalPlan) request;
+  public DataSet read(final IConsensusRequest request) {
+    final ConfigPhysicalReadPlan plan;
+    if (request instanceof ConfigPhysicalReadPlan) {
+      plan = (ConfigPhysicalReadPlan) request;
     } else {
       LOGGER.error("Unexpected read plan : {}", request);
       return null;
@@ -184,13 +178,13 @@ public class ConfigRegionStateMachine implements IStateMachine, IStateMachine.Ev
     return read(plan);
   }
 
-  /** Transmit {@link ConfigPhysicalPlan} to {@link ConfigPlanExecutor} */
-  protected DataSet read(ConfigPhysicalPlan plan) {
+  /** Transmit {@link ConfigPhysicalReadPlan} to {@link ConfigPlanExecutor} */
+  protected DataSet read(final ConfigPhysicalReadPlan plan) {
     DataSet result;
     try {
       result = executor.executeQueryPlan(plan);
-    } catch (UnknownPhysicalPlanTypeException | AuthException e) {
-      LOGGER.error(e.getMessage());
+    } catch (final UnknownPhysicalPlanTypeException | AuthException e) {
+      LOGGER.error("Execute query plan failed", e);
       result = null;
     }
     return result;
@@ -438,7 +432,7 @@ public class ConfigRegionStateMachine implements IStateMachine, IStateMachine.Ev
               PipeConfigNodeAgent.runtime().listener().tryListenToPlan(nextPlan, false);
             }
           } catch (UnknownPhysicalPlanTypeException e) {
-            LOGGER.error(e.getMessage());
+            LOGGER.error("Try listen to plan failed", e);
           }
         }
         logReader.close();

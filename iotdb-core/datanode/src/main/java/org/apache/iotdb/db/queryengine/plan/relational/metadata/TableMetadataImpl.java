@@ -61,6 +61,9 @@ import java.util.stream.Collectors;
 
 import static org.apache.iotdb.commons.conf.IoTDBConstant.PATH_ROOT;
 import static org.apache.iotdb.commons.conf.IoTDBConstant.PATH_SEPARATOR;
+import static org.apache.iotdb.db.queryengine.plan.relational.function.OperatorType.EQUAL;
+import static org.apache.iotdb.db.queryengine.plan.relational.function.OperatorType.LESS_THAN;
+import static org.apache.iotdb.db.queryengine.plan.relational.function.OperatorType.LESS_THAN_OR_EQUAL;
 import static org.apache.tsfile.read.common.type.BinaryType.TEXT;
 import static org.apache.tsfile.read.common.type.BooleanType.BOOLEAN;
 import static org.apache.tsfile.read.common.type.DateType.DATE;
@@ -70,6 +73,7 @@ import static org.apache.tsfile.read.common.type.IntType.INT32;
 import static org.apache.tsfile.read.common.type.LongType.INT64;
 import static org.apache.tsfile.read.common.type.StringType.STRING;
 import static org.apache.tsfile.read.common.type.TimestampType.TIMESTAMP;
+import static org.apache.tsfile.read.common.type.UnknownType.UNKNOWN;
 
 public class TableMetadataImpl implements Metadata {
 
@@ -213,7 +217,7 @@ public class TableMetadataImpl implements Metadata {
         throw new SemanticException(
             "Scalar function "
                 + functionName.toLowerCase(Locale.ENGLISH)
-                + " only supports text or string data type.");
+                + " only accepts two or three arguments and they must be text or string data type.");
       }
       return STRING;
     } else if (TableBuiltinScalarFunction.SUBSTRING
@@ -513,7 +517,7 @@ public class TableMetadataImpl implements Metadata {
     } else if (TableBuiltinScalarFunction.DATE_BIN
         .getFunctionName()
         .equalsIgnoreCase(functionName)) {
-      if (!(argumentTypes.size() == 4 && isTimestampType(argumentTypes.get(2)))) {
+      if (!isTimestampType(argumentTypes.get(2))) {
         throw new SemanticException(
             "Scalar function "
                 + functionName.toLowerCase(Locale.ENGLISH)
@@ -524,35 +528,56 @@ public class TableMetadataImpl implements Metadata {
 
     // builtin aggregation function
     // check argument type
-    switch (functionName.toLowerCase()) {
+    switch (functionName.toLowerCase(Locale.ENGLISH)) {
       case SqlConstant.AVG:
       case SqlConstant.SUM:
       case SqlConstant.EXTREME:
-      case SqlConstant.MIN_VALUE:
-      case SqlConstant.MAX_VALUE:
       case SqlConstant.STDDEV:
       case SqlConstant.STDDEV_POP:
       case SqlConstant.STDDEV_SAMP:
       case SqlConstant.VARIANCE:
       case SqlConstant.VAR_POP:
       case SqlConstant.VAR_SAMP:
-        if (!isOneSupportedMathNumericType(argumentTypes)) {
+        if (argumentTypes.size() != 1) {
+          throw new SemanticException(
+              String.format(
+                  "Aggregate functions [%s] should only have one argument", functionName));
+        }
+
+        if (!isSupportedMathNumericType(argumentTypes.get(0))) {
           throw new SemanticException(
               String.format(
                   "Aggregate functions [%s] only support numeric data types [INT32, INT64, FLOAT, DOUBLE]",
                   functionName));
         }
         break;
-      case SqlConstant.MIN_TIME:
-      case SqlConstant.MAX_TIME:
-      case SqlConstant.FIRST_VALUE:
-      case SqlConstant.LAST_VALUE:
-      case SqlConstant.TIME_DURATION:
+      case SqlConstant.MIN:
+      case SqlConstant.MAX:
       case SqlConstant.MODE:
         if (argumentTypes.size() != 1) {
           throw new SemanticException(
               String.format(
                   "Aggregate functions [%s] should only have one argument", functionName));
+        }
+        break;
+      case SqlConstant.FIRST_AGGREGATION:
+      case SqlConstant.LAST_AGGREGATION:
+        if (argumentTypes.size() != 2) {
+          throw new SemanticException(
+              String.format(
+                  "Aggregate functions [%s] should only have two arguments", functionName));
+        } else if (!isTimestampType(argumentTypes.get(1))) {
+          throw new SemanticException(
+              String.format(
+                  "Second argument of Aggregate functions [%s] should be orderable", functionName));
+        }
+        break;
+      case SqlConstant.FIRST_BY_AGGREGATION:
+      case SqlConstant.LAST_BY_AGGREGATION:
+        if (argumentTypes.size() != 3) {
+          throw new SemanticException(
+              String.format(
+                  "Aggregate functions [%s] should only have three arguments", functionName));
         }
         break;
       case SqlConstant.MAX_BY:
@@ -575,18 +600,17 @@ public class TableMetadataImpl implements Metadata {
     }
 
     // get return type
-    switch (functionName.toLowerCase()) {
-      case SqlConstant.MIN_TIME:
-      case SqlConstant.MAX_TIME:
+    switch (functionName.toLowerCase(Locale.ENGLISH)) {
       case SqlConstant.COUNT:
-      case SqlConstant.TIME_DURATION:
         return INT64;
-      case SqlConstant.MIN_VALUE:
-      case SqlConstant.LAST_VALUE:
-      case SqlConstant.FIRST_VALUE:
-      case SqlConstant.MAX_VALUE:
+      case SqlConstant.FIRST_AGGREGATION:
+      case SqlConstant.LAST_AGGREGATION:
+      case SqlConstant.FIRST_BY_AGGREGATION:
+      case SqlConstant.LAST_BY_AGGREGATION:
       case SqlConstant.EXTREME:
       case SqlConstant.MODE:
+      case SqlConstant.MAX:
+      case SqlConstant.MIN:
       case SqlConstant.MAX_BY:
       case SqlConstant.MIN_BY:
         return argumentTypes.get(0);
@@ -612,18 +636,18 @@ public class TableMetadataImpl implements Metadata {
 
   @Override
   public boolean isAggregationFunction(
-      SessionInfo session, String functionName, AccessControl accessControl) {
+      final SessionInfo session, final String functionName, final AccessControl accessControl) {
     return TableBuiltinAggregationFunction.getNativeFunctionNames()
         .contains(functionName.toLowerCase(Locale.ENGLISH));
   }
 
   @Override
-  public Type getType(TypeSignature signature) throws TypeNotFoundException {
+  public Type getType(final TypeSignature signature) throws TypeNotFoundException {
     return typeManager.getType(signature);
   }
 
   @Override
-  public boolean canCoerce(Type from, Type to) {
+  public boolean canCoerce(final Type from, final Type to) {
     return true;
   }
 
@@ -697,11 +721,6 @@ public class TableMetadataImpl implements Metadata {
         Collections.singletonMap(database, sgNameToQueryParamsMap));
   }
 
-  @Override
-  public boolean canUseStatistics(String functionName) {
-    return TableBuiltinAggregationFunction.canUseStatistics(functionName);
-  }
-
   public static boolean isTwoNumericType(List<? extends Type> argumentTypes) {
     return argumentTypes.size() == 2
         && isNumericType(argumentTypes.get(0))
@@ -771,6 +790,10 @@ public class TableMetadataImpl implements Metadata {
     return TIMESTAMP.equals(type);
   }
 
+  public static boolean isUnknownType(Type type) {
+    return UNKNOWN.equals(type);
+  }
+
   public static boolean isIntegerNumber(Type type) {
     return INT32.equals(type) || INT64.equals(type);
   }
@@ -786,7 +809,10 @@ public class TableMetadataImpl implements Metadata {
     }
 
     // Boolean type and Binary Type can not be compared with other types
-    return (isNumericType(left) && isNumericType(right)) || (isCharType(left) && isCharType(right));
+    return (isNumericType(left) && isNumericType(right))
+        || (isCharType(left) && isCharType(right))
+        || (isUnknownType(left) && (isNumericType(right) || isCharType(right)))
+        || ((isNumericType(left) || isCharType(left)) && isUnknownType(right));
   }
 
   public static boolean isArithmeticType(Type type) {
@@ -804,6 +830,10 @@ public class TableMetadataImpl implements Metadata {
     }
     Type left = argumentTypes.get(0);
     Type right = argumentTypes.get(1);
+    if ((isUnknownType(left) && isArithmeticType(right))
+        || (isUnknownType(right) && isArithmeticType(left))) {
+      return true;
+    }
     return isArithmeticType(left) && isArithmeticType(right);
   }
 }

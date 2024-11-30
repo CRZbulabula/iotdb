@@ -48,8 +48,8 @@ public class PipeTransferTabletRawReq extends TPipeTransferReq {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PipeTransferTabletRawReq.class);
 
-  private transient Tablet tablet;
-  private transient boolean isAligned;
+  protected transient Tablet tablet;
+  protected transient boolean isAligned;
 
   public Tablet getTablet() {
     return tablet;
@@ -71,7 +71,7 @@ public class PipeTransferTabletRawReq extends TPipeTransferReq {
       final TSInsertTabletReq request = new TSInsertTabletReq();
 
       for (final IMeasurementSchema measurementSchema : tablet.getSchemas()) {
-        request.addToMeasurements(measurementSchema.getMeasurementId());
+        request.addToMeasurements(measurementSchema.getMeasurementName());
         request.addToTypes(measurementSchema.getType().ordinal());
       }
 
@@ -79,8 +79,7 @@ public class PipeTransferTabletRawReq extends TPipeTransferReq {
       request.setIsAligned(isAligned);
       request.setTimestamps(SessionUtils.getTimeBuffer(tablet));
       request.setValues(SessionUtils.getValueBuffer(tablet));
-      request.setSize(tablet.rowSize);
-      // TODO: remove the check for table model
+      request.setSize(tablet.getRowSize());
       request.setMeasurements(
           PathUtils.checkIsLegalSingleMeasurementsAndUpdate(request.getMeasurements()));
 

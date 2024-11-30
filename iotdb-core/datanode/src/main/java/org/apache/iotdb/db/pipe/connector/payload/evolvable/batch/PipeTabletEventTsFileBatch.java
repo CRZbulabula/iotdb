@@ -53,6 +53,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -133,10 +134,11 @@ public class PipeTabletEventTsFileBatch extends PipeTabletEventBatch {
     if (event instanceof PipeInsertNodeTabletInsertionEvent) {
       final PipeInsertNodeTabletInsertionEvent insertNodeTabletInsertionEvent =
           (PipeInsertNodeTabletInsertionEvent) event;
+      // TODO: for table model insertion, we need to get the database name
       final List<Tablet> tablets = insertNodeTabletInsertionEvent.convertToTablets();
       for (int i = 0; i < tablets.size(); ++i) {
         final Tablet tablet = tablets.get(i);
-        if (tablet.rowSize == 0) {
+        if (tablet.getRowSize() == 0) {
           continue;
         }
         bufferTablet(
@@ -149,7 +151,7 @@ public class PipeTabletEventTsFileBatch extends PipeTabletEventBatch {
       final PipeRawTabletInsertionEvent rawTabletInsertionEvent =
           (PipeRawTabletInsertionEvent) event;
       final Tablet tablet = rawTabletInsertionEvent.convertToTablet();
-      if (tablet.rowSize == 0) {
+      if (tablet.getRowSize() == 0) {
         return true;
       }
       bufferTablet(
@@ -330,7 +332,7 @@ public class PipeTabletEventTsFileBatch extends PipeTabletEventBatch {
         final Tablet tablet = tablets.peekFirst();
         if (Objects.isNull(lastTablet)
             // lastTablet.rowSize is not 0
-            || lastTablet.timestamps[lastTablet.rowSize - 1] < tablet.timestamps[0]) {
+            || lastTablet.timestamps[lastTablet.getRowSize() - 1] < tablet.timestamps[0]) {
           tabletsToWrite.add(tablet);
           lastTablet = tablet;
           tablets.pollFirst();
@@ -344,17 +346,30 @@ public class PipeTabletEventTsFileBatch extends PipeTabletEventBatch {
       }
 
       final boolean isAligned = device2Aligned.get(deviceId);
-      for (final Tablet tablet : tabletsToWrite) {
-        if (isAligned) {
-          try {
-            fileWriter.registerAlignedTimeseries(
-                new Path(tablet.getDeviceId()), tablet.getSchemas());
-          } catch (final WriteProcessException ignore) {
-            // Do nothing if the timeSeries has been registered
-          }
-
+      if (isAligned) {
+        final Map<String, List<IMeasurementSchema>> deviceId2MeasurementSchemas = new HashMap<>();
+        tabletsToWrite.forEach(
+            tablet ->
+                deviceId2MeasurementSchemas.compute(
+                    tablet.getDeviceId(),
+                    (k, v) -> {
+                      if (Objects.isNull(v)) {
+                        return new ArrayList<>(tablet.getSchemas());
+                      }
+                      v.addAll(tablet.getSchemas());
+                      return v;
+                    }));
+        for (final Entry<String, List<IMeasurementSchema>> deviceIdWithMeasurementSchemas :
+            deviceId2MeasurementSchemas.entrySet()) {
+          fileWriter.registerAlignedTimeseries(
+              new Path(deviceIdWithMeasurementSchemas.getKey()),
+              deviceIdWithMeasurementSchemas.getValue());
+        }
+        for (final Tablet tablet : tabletsToWrite) {
           fileWriter.writeAligned(tablet);
-        } else {
+        }
+      } else {
+        for (final Tablet tablet : tabletsToWrite) {
           for (final IMeasurementSchema schema : tablet.getSchemas()) {
             try {
               fileWriter.registerTimeseries(new Path(tablet.getDeviceId()), schema);
@@ -363,7 +378,7 @@ public class PipeTabletEventTsFileBatch extends PipeTabletEventBatch {
             }
           }
 
-          fileWriter.write(tablet);
+          fileWriter.writeTree(tablet);
         }
       }
     }

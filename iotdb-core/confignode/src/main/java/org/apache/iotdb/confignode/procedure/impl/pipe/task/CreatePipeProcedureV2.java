@@ -25,11 +25,11 @@ import org.apache.iotdb.commons.consensus.ConsensusGroupId;
 import org.apache.iotdb.commons.consensus.index.impl.MinimumProgressIndex;
 import org.apache.iotdb.commons.consensus.index.impl.RecoverProgressIndex;
 import org.apache.iotdb.commons.consensus.index.impl.SimpleProgressIndex;
-import org.apache.iotdb.commons.pipe.task.meta.PipeRuntimeMeta;
-import org.apache.iotdb.commons.pipe.task.meta.PipeStaticMeta;
-import org.apache.iotdb.commons.pipe.task.meta.PipeStatus;
-import org.apache.iotdb.commons.pipe.task.meta.PipeTaskMeta;
-import org.apache.iotdb.commons.pipe.task.meta.PipeType;
+import org.apache.iotdb.commons.pipe.agent.task.meta.PipeRuntimeMeta;
+import org.apache.iotdb.commons.pipe.agent.task.meta.PipeStaticMeta;
+import org.apache.iotdb.commons.pipe.agent.task.meta.PipeStatus;
+import org.apache.iotdb.commons.pipe.agent.task.meta.PipeTaskMeta;
+import org.apache.iotdb.commons.pipe.agent.task.meta.PipeType;
 import org.apache.iotdb.commons.schema.SchemaConstant;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 import org.apache.iotdb.confignode.consensus.request.write.pipe.task.CreatePipePlanV2;
@@ -180,9 +180,7 @@ public class CreatePipeProcedureV2 extends AbstractOperatePipeProcedureV2 {
           .forEach(
               (regionGroupId, regionLeaderNodeId) -> {
                 final String databaseName =
-                    env.getConfigManager()
-                        .getPartitionManager()
-                        .getRegionStorageGroup(regionGroupId);
+                    env.getConfigManager().getPartitionManager().getRegionDatabase(regionGroupId);
                 if (databaseName != null
                     && !databaseName.equals(SchemaConstant.SYSTEM_DATABASE)
                     && !databaseName.startsWith(SchemaConstant.SYSTEM_DATABASE + ".")) {
@@ -196,8 +194,7 @@ public class CreatePipeProcedureV2 extends AbstractOperatePipeProcedureV2 {
       // config region
       consensusGroupIdToTaskMetaMap.put(
           // 0 is the consensus group id of the config region, but data region id and schema region
-          // id
-          // also start from 0, so we use Integer.MIN_VALUE to represent the config region
+          // id also start from 0, so we use Integer.MIN_VALUE to represent the config region
           Integer.MIN_VALUE,
           new PipeTaskMeta(
               MinimumProgressIndex.INSTANCE,
@@ -206,7 +203,9 @@ public class CreatePipeProcedureV2 extends AbstractOperatePipeProcedureV2 {
     }
 
     pipeRuntimeMeta = new PipeRuntimeMeta(consensusGroupIdToTaskMetaMap);
-    pipeRuntimeMeta.getStatus().set(PipeStatus.RUNNING);
+    if (!createPipeRequest.needManuallyStart) {
+      pipeRuntimeMeta.getStatus().set(PipeStatus.RUNNING);
+    }
   }
 
   @Override

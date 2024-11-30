@@ -25,6 +25,7 @@ import org.apache.iotdb.commons.pipe.connector.client.IoTDBSyncClient;
 import org.apache.iotdb.commons.pipe.connector.client.IoTDBSyncClientManager;
 import org.apache.iotdb.commons.pipe.connector.payload.thrift.request.PipeTransferFilePieceReq;
 import org.apache.iotdb.commons.pipe.connector.protocol.IoTDBSslSyncConnector;
+import org.apache.iotdb.confignode.conf.ConfigNodeConfig;
 import org.apache.iotdb.confignode.manager.pipe.connector.client.IoTDBConfigNodeSyncClientManager;
 import org.apache.iotdb.confignode.manager.pipe.connector.payload.PipeTransferConfigPlanReq;
 import org.apache.iotdb.confignode.manager.pipe.connector.payload.PipeTransferConfigSnapshotPieceReq;
@@ -61,16 +62,22 @@ public class IoTDBConfigRegionConnector extends IoTDBSslSyncConnector {
       final boolean useSSL,
       final String trustStorePath,
       final String trustStorePwd,
+      /* The following parameters are used locally. */
       final boolean useLeaderCache,
       final String loadBalanceStrategy,
+      /* The following parameters are used to handshake with the receiver. */
+      final String username,
+      final String password,
       final boolean shouldReceiverConvertOnTypeMismatch,
       final String loadTsFileStrategy) {
     return new IoTDBConfigNodeSyncClientManager(
         nodeUrls,
         useSSL,
-        trustStorePath,
+        Objects.nonNull(trustStorePath) ? ConfigNodeConfig.addHomeDir(trustStorePath) : null,
         trustStorePwd,
         loadBalanceStrategy,
+        username,
+        password,
         shouldReceiverConvertOnTypeMismatch,
         loadTsFileStrategy);
   }
@@ -216,7 +223,7 @@ public class IoTDBConfigRegionConnector extends IoTDBSslSyncConnector {
           compressIfNeeded(
               PipeTransferConfigSnapshotSealReq.toTPipeTransferReq(
                   // The pattern is surely Non-null
-                  snapshotEvent.getPatternString(),
+                  snapshotEvent.getTreePatternString(),
                   snapshotFile.getName(),
                   snapshotFile.length(),
                   Objects.nonNull(templateFile) ? templateFile.getName() : null,

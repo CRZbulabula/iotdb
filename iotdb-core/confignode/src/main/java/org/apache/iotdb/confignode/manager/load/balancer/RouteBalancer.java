@@ -25,7 +25,7 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.common.rpc.thrift.TSStatus;
 import org.apache.iotdb.commons.cluster.NodeStatus;
-import org.apache.iotdb.confignode.client.CnToDnRequestType;
+import org.apache.iotdb.confignode.client.async.CnToDnAsyncRequestType;
 import org.apache.iotdb.confignode.client.async.CnToDnInternalServiceAsyncRequestManager;
 import org.apache.iotdb.confignode.client.async.handlers.DataNodeAsyncRequestContext;
 import org.apache.iotdb.confignode.conf.ConfigNodeConfig;
@@ -60,6 +60,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -81,8 +82,6 @@ public class RouteBalancer implements IClusterStatusSubscriber {
               && ConsensusFactory.RATIS_CONSENSUS.equals(DATA_REGION_CONSENSUS_PROTOCOL_CLASS))
           || (CONF.isEnableAutoLeaderBalanceForIoTConsensus()
               && ConsensusFactory.IOT_CONSENSUS.equals(DATA_REGION_CONSENSUS_PROTOCOL_CLASS))
-          || (CONF.isEnableAutoLeaderBalanceForIoTConsensus()
-              && ConsensusFactory.FAST_IOT_CONSENSUS.equals(DATA_REGION_CONSENSUS_PROTOCOL_CLASS))
           || (CONF.isEnableAutoLeaderBalanceForIoTConsensus()
               && ConsensusFactory.IOT_CONSENSUS_V2.equals(DATA_REGION_CONSENSUS_PROTOCOL_CLASS))
           // The simple consensus protocol will always automatically designate itself as the leader
@@ -173,7 +172,7 @@ public class RouteBalancer implements IClusterStatusSubscriber {
     long currentTime = System.nanoTime();
     AtomicInteger requestId = new AtomicInteger(0);
     DataNodeAsyncRequestContext<TRegionLeaderChangeReq, TRegionLeaderChangeResp> clientHandler =
-        new DataNodeAsyncRequestContext<>(CnToDnRequestType.CHANGE_REGION_LEADER);
+        new DataNodeAsyncRequestContext<>(CnToDnAsyncRequestType.CHANGE_REGION_LEADER);
     Map<TConsensusGroupId, ConsensusGroupHeartbeatSample> successTransferMap = new TreeMap<>();
     optimalLeaderMap.forEach(
         (regionGroupId, newLeaderId) -> {
@@ -189,7 +188,6 @@ public class RouteBalancer implements IClusterStatusSubscriber {
                 regionGroupId,
                 newLeaderId);
             switch (consensusProtocolClass) {
-              case ConsensusFactory.FAST_IOT_CONSENSUS:
               case ConsensusFactory.IOT_CONSENSUS_V2:
               case ConsensusFactory.IOT_CONSENSUS:
               case ConsensusFactory.SIMPLE_CONSENSUS:
@@ -249,7 +247,44 @@ public class RouteBalancer implements IClusterStatusSubscriber {
         }
       }
     }
+
     getLoadManager().forceUpdateConsensusGroupCache(successTransferMap);
+
+    invalidateSchemaCacheOfOldLeaders(currentLeaderMap, successTransferMap.keySet());
+  }
+
+  private void invalidateSchemaCacheOfOldLeaders(
+      final Map<TConsensusGroupId, Integer> oldLeaderMap,
+      final Set<TConsensusGroupId> successTransferSet) {
+    final DataNodeAsyncRequestContext<String, TSStatus> invalidateSchemaCacheRequestHandler =
+        new DataNodeAsyncRequestContext<>(CnToDnAsyncRequestType.INVALIDATE_LAST_CACHE);
+    final AtomicInteger requestIndex = new AtomicInteger(0);
+    oldLeaderMap.entrySet().stream()
+        .filter(entry -> TConsensusGroupType.DataRegion == entry.getKey().getType())
+        .filter(entry -> successTransferSet.contains(entry.getKey()))
+        .forEach(
+            entry -> {
+              // set target
+              final Integer dataNodeId = entry.getValue();
+              if (dataNodeId == -1) {
+                return;
+              }
+              final TDataNodeLocation dataNodeLocation =
+                  getNodeManager().getRegisteredDataNode(dataNodeId).getLocation();
+              if (dataNodeLocation == null) {
+                LOGGER.warn("DataNodeLocation is null, datanodeId {}", dataNodeId);
+                return;
+              }
+              invalidateSchemaCacheRequestHandler.putNodeLocation(
+                  requestIndex.get(), dataNodeLocation);
+              // set req
+              final TConsensusGroupId consensusGroupId = entry.getKey();
+              final String database = getPartitionManager().getRegionDatabase(consensusGroupId);
+              invalidateSchemaCacheRequestHandler.putRequest(requestIndex.get(), database);
+              requestIndex.incrementAndGet();
+            });
+    CnToDnInternalServiceAsyncRequestManager.getInstance()
+        .sendAsyncRequest(invalidateSchemaCacheRequestHandler);
   }
 
   public synchronized void balanceRegionLeaderAndPriority() {
@@ -314,7 +349,7 @@ public class RouteBalancer implements IClusterStatusSubscriber {
     Map<TConsensusGroupId, TRegionReplicaSet> tmpPriorityMap = getRegionPriorityMap();
     DataNodeAsyncRequestContext<TRegionRouteReq, TSStatus> clientHandler =
         new DataNodeAsyncRequestContext<>(
-            CnToDnRequestType.UPDATE_REGION_ROUTE_MAP,
+            CnToDnAsyncRequestType.UPDATE_REGION_ROUTE_MAP,
             new TRegionRouteReq(broadcastTime, tmpPriorityMap),
             dataNodeLocationMap);
     for (Map.Entry<TConsensusGroupId, TRegionReplicaSet> routeEntry : tmpPriorityMap.entrySet()) {

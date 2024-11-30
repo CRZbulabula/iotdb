@@ -22,6 +22,7 @@ package org.apache.iotdb.db.storageengine.dataregion.compaction.execute.utils.ex
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.utils.executor.ModifiedStatus;
 
 import org.apache.tsfile.file.metadata.AlignedChunkMetadata;
+import org.apache.tsfile.file.metadata.ChunkMetadata;
 import org.apache.tsfile.file.metadata.IChunkMetadata;
 import org.apache.tsfile.read.TsFileSequenceReader;
 import org.apache.tsfile.read.common.TimeRange;
@@ -63,6 +64,10 @@ public class AlignedSeriesBatchCompactionUtils {
     }
   }
 
+  public static boolean isTimeChunk(ChunkMetadata chunkMetadata) {
+    return chunkMetadata.getMeasurementUid().isEmpty();
+  }
+
   public static AlignedChunkMetadata filterAlignedChunkMetadataByIndex(
       AlignedChunkMetadata alignedChunkMetadata, List<Integer> selectedMeasurements) {
     IChunkMetadata[] valueChunkMetadataArr = new IChunkMetadata[selectedMeasurements.size()];
@@ -80,13 +85,17 @@ public class AlignedSeriesBatchCompactionUtils {
       AlignedChunkMetadata originAlignedChunkMetadata, List<IMeasurementSchema> schemaList) {
     List<IChunkMetadata> originValueChunkMetadataList =
         originAlignedChunkMetadata.getValueChunkMetadataList();
-    if (originValueChunkMetadataList.size() == schemaList.size()) {
-      return originAlignedChunkMetadata;
-    }
     IChunkMetadata[] newValueChunkMetadataArr = new IChunkMetadata[schemaList.size()];
     int currentValueChunkMetadataIndex = 0;
     for (int i = 0; i < schemaList.size(); i++) {
       IMeasurementSchema currentSchema = schemaList.get(i);
+
+      // skip null value
+      while (currentValueChunkMetadataIndex < originValueChunkMetadataList.size()
+          && originValueChunkMetadataList.get(currentValueChunkMetadataIndex) == null) {
+        currentValueChunkMetadataIndex++;
+      }
+
       if (currentValueChunkMetadataIndex >= originValueChunkMetadataList.size()) {
         break;
       }
@@ -94,7 +103,7 @@ public class AlignedSeriesBatchCompactionUtils {
           originValueChunkMetadataList.get(currentValueChunkMetadataIndex);
       if (currentValueChunkMetadata != null
           && currentSchema
-              .getMeasurementId()
+              .getMeasurementName()
               .equals(currentValueChunkMetadata.getMeasurementUid())) {
         newValueChunkMetadataArr[i] = currentValueChunkMetadata;
         currentValueChunkMetadataIndex++;
@@ -105,7 +114,19 @@ public class AlignedSeriesBatchCompactionUtils {
   }
 
   public static ModifiedStatus calculateAlignedPageModifiedStatus(
-      long startTime, long endTime, AlignedChunkMetadata originAlignedChunkMetadata) {
+      long startTime,
+      long endTime,
+      AlignedChunkMetadata originAlignedChunkMetadata,
+      boolean ignoreAllNullRows) {
+    ModifiedStatus timePageModifiedStatus =
+        checkIsModified(
+            startTime,
+            endTime,
+            originAlignedChunkMetadata.getTimeChunkMetadata().getDeleteIntervalList());
+    if (timePageModifiedStatus != ModifiedStatus.NONE_DELETED) {
+      return timePageModifiedStatus;
+    }
+
     ModifiedStatus lastPageStatus = null;
     for (IChunkMetadata valueChunkMetadata :
         originAlignedChunkMetadata.getValueChunkMetadataList()) {
@@ -128,7 +149,11 @@ public class AlignedSeriesBatchCompactionUtils {
         lastPageStatus = ModifiedStatus.NONE_DELETED;
       }
     }
-    return lastPageStatus;
+
+    // keep the aligned table page with deletion only in value page
+    return (!ignoreAllNullRows && lastPageStatus == ModifiedStatus.ALL_DELETED)
+        ? ModifiedStatus.PARTIAL_DELETED
+        : lastPageStatus;
   }
 
   public static ModifiedStatus checkIsModified(

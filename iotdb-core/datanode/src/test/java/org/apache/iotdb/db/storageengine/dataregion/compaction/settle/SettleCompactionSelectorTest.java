@@ -28,9 +28,10 @@ import org.apache.iotdb.db.exception.StorageEngineException;
 import org.apache.iotdb.db.queryengine.plan.analyze.cache.schema.DataNodeTTLCache;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.AbstractCompactionTest;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.execute.task.SettleCompactionTask;
+import org.apache.iotdb.db.storageengine.dataregion.compaction.schedule.CompactionScheduleContext;
 import org.apache.iotdb.db.storageengine.dataregion.compaction.selector.impl.SettleSelectorImpl;
-import org.apache.iotdb.db.storageengine.dataregion.modification.Deletion;
 import org.apache.iotdb.db.storageengine.dataregion.modification.ModificationFile;
+import org.apache.iotdb.db.storageengine.dataregion.modification.TreeDeletionEntry;
 import org.apache.iotdb.db.storageengine.dataregion.tsfile.TsFileResource;
 
 import org.apache.tsfile.exception.write.WriteProcessException;
@@ -58,7 +59,7 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
   @After
   public void tearDown() throws IOException, StorageEngineException {
     super.tearDown();
-    DataNodeTTLCache.getInstance().clearAllTTL();
+    DataNodeTTLCache.getInstance().clearAllTTLForTree();
     TsFileGeneratorUtils.useMultiType = originUseMultiType;
   }
 
@@ -80,7 +81,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     // inner task, continuous
     // select first time
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(false, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            false, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     List<SettleCompactionTask> unseqTasks = settleSelector.selectSettleTask(unseqResources);
     Assert.assertEquals(1, seqTasks.size());
@@ -95,8 +97,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(3, tsFileManager.getTsFileList(true).size());
     Assert.assertEquals(3, tsFileManager.getTsFileList(false).size());
 
-    Assert.assertFalse(tsFileManager.getTsFileList(true).get(0).getModFile().exists());
-    Assert.assertFalse(tsFileManager.getTsFileList(false).get(0).getModFile().exists());
+    Assert.assertFalse(tsFileManager.getTsFileList(true).get(0).anyModFileExists());
+    Assert.assertFalse(tsFileManager.getTsFileList(false).get(0).anyModFileExists());
 
     // select second time
     seqTasks = settleSelector.selectSettleTask(seqResources);
@@ -111,8 +113,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(2, tsFileManager.getTsFileList(true).size());
     Assert.assertEquals(2, tsFileManager.getTsFileList(false).size());
     for (int i = 0; i < 2; i++) {
-      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).getModFile().exists());
-      Assert.assertFalse(tsFileManager.getTsFileList(false).get(i).getModFile().exists());
+      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).anyModFileExists());
+      Assert.assertFalse(tsFileManager.getTsFileList(false).get(i).anyModFileExists());
     }
 
     seqTasks = settleSelector.selectSettleTask(seqResources);
@@ -143,7 +145,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     // settle task, not continuous
     // select first time
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(false, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            false, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     int num = 10;
     for (int i = 0; i < 5; i++) {
       List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
@@ -188,7 +191,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
 
     // select first time
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     List<SettleCompactionTask> unseqTasks = settleSelector.selectSettleTask(unseqResources);
     Assert.assertEquals(0, seqTasks.size());
@@ -211,7 +215,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
             resource,
             new MeasurementPath(
                 COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d" + i + ".**"),
-            Long.MAX_VALUE,
             0,
             200);
       }
@@ -221,7 +224,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
 
     // select first time, file 0 is all deleted, file 1 2 3 4 is not satisfied by heavy select
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(1, seqTasks.size());
     Assert.assertEquals(1, seqTasks.get(0).getFullyDirtyFiles().size());
@@ -231,7 +235,9 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(4, tsFileManager.getTsFileList(true).size());
 
     // select second time
-    settleSelector = new SettleSelectorImpl(false, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+    settleSelector =
+        new SettleSelectorImpl(
+            false, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(1, seqTasks.size());
     Assert.assertEquals(0, seqTasks.get(0).getFullyDirtyFiles().size());
@@ -248,7 +254,7 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(2, tsFileManager.getTsFileList(true).size());
 
     for (int i = 0; i < 2; i++) {
-      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).getModFile().exists());
+      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).anyModFileExists());
     }
   }
 
@@ -266,13 +272,14 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     tsFileManager.addAll(unseqResources, false);
 
     DataNodeTTLCache.getInstance()
-        .setTTL(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d1", 100);
+        .setTTLForTree(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d1", 100);
     generateModsFile(1, 10, seqResources, Long.MIN_VALUE, Long.MAX_VALUE);
     generateModsFile(1, 10, unseqResources, Long.MIN_VALUE, Long.MAX_VALUE);
 
     // select first time, none partial_deleted and all_deleted files
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     List<SettleCompactionTask> unseqTasks = settleSelector.selectSettleTask(unseqResources);
     Assert.assertEquals(0, seqTasks.size());
@@ -284,7 +291,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
       addFileMods(
           resource,
           new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d0.**"),
-          Long.MAX_VALUE,
           Long.MIN_VALUE,
           Long.MAX_VALUE);
     }
@@ -296,7 +302,7 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
 
     Assert.assertTrue(unseqTasks.get(0).start());
     Assert.assertEquals(1, tsFileManager.getTsFileList(false).size());
-    Assert.assertFalse(tsFileManager.getTsFileList(false).get(0).getModFile().exists());
+    Assert.assertFalse(tsFileManager.getTsFileList(false).get(0).anyModFileExists());
 
     // select third time
     // all seq files is partial_deleted
@@ -304,7 +310,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
       addFileMods(
           resource,
           new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d0.**"),
-          Long.MAX_VALUE,
           Long.MIN_VALUE,
           Long.MAX_VALUE);
     }
@@ -334,14 +339,15 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     tsFileManager.addAll(unseqResources, false);
 
     DataNodeTTLCache.getInstance()
-        .setTTL(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d1", 100);
+        .setTTLForTree(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d1", 100);
     generateModsFile(1, 10, seqResources, Long.MIN_VALUE, Long.MAX_VALUE);
     generateModsFile(1, 10, unseqResources, Long.MIN_VALUE, Long.MAX_VALUE);
 
     // inner task, continuous
     // select first time, none partial_deleted and all_deleted files
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     List<SettleCompactionTask> unseqTasks = settleSelector.selectSettleTask(unseqResources);
     Assert.assertEquals(0, seqTasks.size());
@@ -367,8 +373,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(2, tsFileManager.getTsFileList(false).size());
 
     for (int i = 0; i < 2; i++) {
-      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).getModFile().exists());
-      Assert.assertFalse(tsFileManager.getTsFileList(false).get(i).getModFile().exists());
+      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).anyModFileExists());
+      Assert.assertFalse(tsFileManager.getTsFileList(false).get(i).anyModFileExists());
     }
 
     // select third time
@@ -393,7 +399,7 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
 
     // add one device ttl
     DataNodeTTLCache.getInstance()
-        .setTTL(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d0", 100);
+        .setTTLForTree(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d0", 100);
 
     // select first time， none partial_deleted and all_deleted files
     // add device mods with already outdated device
@@ -402,13 +408,13 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d0.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
       }
     }
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(0, seqTasks.size());
 
@@ -421,7 +427,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
               seqResources.get(i),
               new MeasurementPath(
                   COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d" + d + ".**"),
-              Long.MAX_VALUE,
               Long.MIN_VALUE,
               Long.MAX_VALUE);
         }
@@ -439,7 +444,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d1.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
       }
@@ -481,13 +485,11 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d0.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d1.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
       }
@@ -496,13 +498,13 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
       addFileMods(
           seqResources.get(1),
           new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d" + d + ".**"),
-          Long.MAX_VALUE,
           Long.MIN_VALUE,
           Long.MAX_VALUE);
     }
     // compact all_deleted file and partial_deleted file 0 2
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(4, seqTasks.size());
     Assert.assertEquals(1, seqTasks.get(0).getFullyDirtyFiles().size());
@@ -550,13 +552,11 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d0.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d1.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
       }
@@ -564,17 +564,18 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     for (int d = 0; d < 5; d++) {
       MeasurementPath path =
           new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d" + d + ".**");
-      addFileMods(seqResources.get(2), path, Long.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
-      addFileMods(seqResources.get(3), path, Long.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
-      addFileMods(seqResources.get(7), path, Long.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
+      addFileMods(seqResources.get(2), path, Long.MIN_VALUE, Long.MAX_VALUE);
+      addFileMods(seqResources.get(3), path, Long.MIN_VALUE, Long.MAX_VALUE);
+      addFileMods(seqResources.get(7), path, Long.MIN_VALUE, Long.MAX_VALUE);
     }
     for (TsFileResource resource : seqResources) {
-      resource.getModFile().close();
+      resource.getModFileForWrite().close();
     }
 
     // compact all_deleted file and partial_deleted file 0
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(3, seqTasks.size());
     Assert.assertEquals(3, seqTasks.get(0).getFullyDirtyFiles().size());
@@ -616,7 +617,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     // inner task, continuous
     // select first time
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(false, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            false, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     List<SettleCompactionTask> unseqTasks = settleSelector.selectSettleTask(unseqResources);
     Assert.assertEquals(1, seqTasks.size());
@@ -631,8 +633,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(3, tsFileManager.getTsFileList(true).size());
     Assert.assertEquals(3, tsFileManager.getTsFileList(false).size());
 
-    Assert.assertFalse(tsFileManager.getTsFileList(true).get(0).getModFile().exists());
-    Assert.assertFalse(tsFileManager.getTsFileList(false).get(0).getModFile().exists());
+    Assert.assertFalse(tsFileManager.getTsFileList(true).get(0).anyModFileExists());
+    Assert.assertFalse(tsFileManager.getTsFileList(false).get(0).anyModFileExists());
 
     // select second time
     seqTasks = settleSelector.selectSettleTask(seqResources);
@@ -647,8 +649,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(2, tsFileManager.getTsFileList(true).size());
     Assert.assertEquals(2, tsFileManager.getTsFileList(false).size());
     for (int i = 0; i < 2; i++) {
-      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).getModFile().exists());
-      Assert.assertFalse(tsFileManager.getTsFileList(false).get(i).getModFile().exists());
+      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).anyModFileExists());
+      Assert.assertFalse(tsFileManager.getTsFileList(false).get(i).anyModFileExists());
     }
 
     seqTasks = settleSelector.selectSettleTask(seqResources);
@@ -680,7 +682,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     // settle task, not continuous
     // select first time
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(false, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            false, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     int num = 10;
     for (int i = 0; i < 5; i++) {
       List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
@@ -725,7 +728,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
 
     // select first time
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     List<SettleCompactionTask> unseqTasks = settleSelector.selectSettleTask(unseqResources);
     Assert.assertEquals(0, seqTasks.size());
@@ -748,7 +752,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
             resource,
             new MeasurementPath(
                 COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d" + (10000 + i) + ".**"),
-            Long.MAX_VALUE,
             0,
             200);
       }
@@ -758,7 +761,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
 
     // select first time, file 0 is all deleted, file 1 2 3 4 is not satisfied by heavy select
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(1, seqTasks.size());
     Assert.assertEquals(1, seqTasks.get(0).getFullyDirtyFiles().size());
@@ -768,7 +772,9 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(4, tsFileManager.getTsFileList(true).size());
 
     // select second time
-    settleSelector = new SettleSelectorImpl(false, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+    settleSelector =
+        new SettleSelectorImpl(
+            false, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(1, seqTasks.size());
     Assert.assertEquals(0, seqTasks.get(0).getFullyDirtyFiles().size());
@@ -785,7 +791,7 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(2, tsFileManager.getTsFileList(true).size());
 
     for (int i = 0; i < 2; i++) {
-      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).getModFile().exists());
+      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).anyModFileExists());
     }
   }
 
@@ -803,13 +809,14 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     tsFileManager.addAll(unseqResources, false);
 
     DataNodeTTLCache.getInstance()
-        .setTTL(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10001", 100);
+        .setTTLForTree(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10001", 100);
     generateModsFile(1, 10, seqResources, Long.MIN_VALUE, Long.MAX_VALUE, true);
     generateModsFile(1, 10, unseqResources, Long.MIN_VALUE, Long.MAX_VALUE, true);
 
     // select first time, none partial_deleted and all_deleted files
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     List<SettleCompactionTask> unseqTasks = settleSelector.selectSettleTask(unseqResources);
     Assert.assertEquals(0, seqTasks.size());
@@ -821,7 +828,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
       addFileMods(
           resource,
           new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10000.**"),
-          Long.MAX_VALUE,
           Long.MIN_VALUE,
           Long.MAX_VALUE);
     }
@@ -833,7 +839,7 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
 
     Assert.assertTrue(unseqTasks.get(0).start());
     Assert.assertEquals(1, tsFileManager.getTsFileList(false).size());
-    Assert.assertFalse(tsFileManager.getTsFileList(false).get(0).getModFile().exists());
+    Assert.assertFalse(tsFileManager.getTsFileList(false).get(0).anyModFileExists());
 
     // select third time
     // all seq files is partial_deleted
@@ -841,7 +847,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
       addFileMods(
           resource,
           new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10000.**"),
-          Long.MAX_VALUE,
           Long.MIN_VALUE,
           Long.MAX_VALUE);
     }
@@ -871,14 +876,15 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     tsFileManager.addAll(unseqResources, false);
 
     DataNodeTTLCache.getInstance()
-        .setTTL(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10001", 100);
+        .setTTLForTree(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10001", 100);
     generateModsFile(1, 10, seqResources, Long.MIN_VALUE, Long.MAX_VALUE, true);
     generateModsFile(1, 10, unseqResources, Long.MIN_VALUE, Long.MAX_VALUE, true);
 
     // inner task, continuous
     // select first time, none partial_deleted and all_deleted files
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     List<SettleCompactionTask> unseqTasks = settleSelector.selectSettleTask(unseqResources);
     Assert.assertEquals(0, seqTasks.size());
@@ -904,8 +910,8 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
     Assert.assertEquals(2, tsFileManager.getTsFileList(false).size());
 
     for (int i = 0; i < 2; i++) {
-      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).getModFile().exists());
-      Assert.assertFalse(tsFileManager.getTsFileList(false).get(i).getModFile().exists());
+      Assert.assertFalse(tsFileManager.getTsFileList(true).get(i).anyModFileExists());
+      Assert.assertFalse(tsFileManager.getTsFileList(false).get(i).anyModFileExists());
     }
 
     // select third time
@@ -930,7 +936,7 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
 
     // add one device ttl
     DataNodeTTLCache.getInstance()
-        .setTTL(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10000", 100);
+        .setTTLForTree(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10000", 100);
 
     // select first time， none partial_deleted and all_deleted files
     // add device mods with already outdated device
@@ -939,13 +945,13 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10000.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
       }
     }
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(0, seqTasks.size());
 
@@ -958,7 +964,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
               seqResources.get(i),
               new MeasurementPath(
                   COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d" + (10000 + d) + ".**"),
-              Long.MAX_VALUE,
               Long.MIN_VALUE,
               Long.MAX_VALUE);
         }
@@ -976,7 +981,6 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10001.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
       }
@@ -1018,13 +1022,11 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10000.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10001.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
       }
@@ -1034,13 +1036,13 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
           seqResources.get(1),
           new MeasurementPath(
               COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d" + (10000 + d) + ".**"),
-          Long.MAX_VALUE,
           Long.MIN_VALUE,
           Long.MAX_VALUE);
     }
     // compact all_deleted file and partial_deleted file 0 2
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(4, seqTasks.size());
     Assert.assertEquals(1, seqTasks.get(0).getFullyDirtyFiles().size());
@@ -1088,13 +1090,11 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10000.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
         addFileMods(
             seqResources.get(i),
             new MeasurementPath(COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d10001.**"),
-            Long.MAX_VALUE,
             Long.MIN_VALUE,
             Long.MAX_VALUE);
       }
@@ -1103,17 +1103,18 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
       MeasurementPath path =
           new MeasurementPath(
               COMPACTION_TEST_SG + IoTDBConstant.PATH_SEPARATOR + "d" + (10000 + d) + ".**");
-      addFileMods(seqResources.get(2), path, Long.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
-      addFileMods(seqResources.get(3), path, Long.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
-      addFileMods(seqResources.get(7), path, Long.MAX_VALUE, Long.MIN_VALUE, Long.MAX_VALUE);
+      addFileMods(seqResources.get(2), path, Long.MIN_VALUE, Long.MAX_VALUE);
+      addFileMods(seqResources.get(3), path, Long.MIN_VALUE, Long.MAX_VALUE);
+      addFileMods(seqResources.get(7), path, Long.MIN_VALUE, Long.MAX_VALUE);
     }
     for (TsFileResource resource : seqResources) {
-      resource.getModFile().close();
+      resource.getModFileForWrite().close();
     }
 
     // compact all_deleted file and partial_deleted file 0
     SettleSelectorImpl settleSelector =
-        new SettleSelectorImpl(true, COMPACTION_TEST_SG, "0", 0, tsFileManager);
+        new SettleSelectorImpl(
+            true, COMPACTION_TEST_SG, "0", 0, tsFileManager, new CompactionScheduleContext());
     List<SettleCompactionTask> seqTasks = settleSelector.selectSettleTask(seqResources);
     Assert.assertEquals(3, seqTasks.size());
     Assert.assertEquals(3, seqTasks.get(0).getFullyDirtyFiles().size());
@@ -1138,10 +1139,10 @@ public class SettleCompactionSelectorTest extends AbstractCompactionTest {
   // endregion
 
   private void addFileMods(
-      TsFileResource resource, MeasurementPath path, long fileOffset, long startTime, long endTime)
+      TsFileResource resource, MeasurementPath path, long startTime, long endTime)
       throws IOException {
-    try (ModificationFile modificationFile = resource.getModFile()) {
-      modificationFile.write(new Deletion(path, fileOffset, startTime, endTime));
+    try (ModificationFile modificationFile = resource.getModFileForWrite()) {
+      modificationFile.write(new TreeDeletionEntry(path, startTime, endTime));
     }
   }
 

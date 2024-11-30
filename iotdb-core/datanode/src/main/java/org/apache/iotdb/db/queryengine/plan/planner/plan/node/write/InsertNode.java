@@ -20,12 +20,10 @@
 package org.apache.iotdb.db.queryengine.plan.planner.plan.node.write;
 
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
-import org.apache.iotdb.commons.consensus.index.ComparableConsensusRequest;
 import org.apache.iotdb.commons.consensus.index.ProgressIndex;
 import org.apache.iotdb.commons.exception.IllegalPathException;
 import org.apache.iotdb.commons.path.PartialPath;
 import org.apache.iotdb.commons.schema.table.column.TsTableColumnCategory;
-import org.apache.iotdb.commons.utils.TestOnly;
 import org.apache.iotdb.consensus.ConsensusFactory;
 import org.apache.iotdb.db.conf.IoTDBConfig;
 import org.apache.iotdb.db.conf.IoTDBDescriptor;
@@ -52,7 +50,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-public abstract class InsertNode extends SearchNode implements ComparableConsensusRequest {
+public abstract class InsertNode extends SearchNode {
 
   private static final IoTDBConfig config = IoTDBDescriptor.getInstance().getConfig();
 
@@ -218,7 +216,6 @@ public abstract class InsertNode extends SearchNode implements ComparableConsens
     switch (config.getDataRegionConsensusProtocolClass()) {
       case ConsensusFactory.IOT_CONSENSUS:
       case ConsensusFactory.IOT_CONSENSUS_V2:
-      case ConsensusFactory.FAST_IOT_CONSENSUS:
       case ConsensusFactory.RATIS_CONSENSUS:
         return isGeneratedByRemoteConsensusLeader;
       case ConsensusFactory.SIMPLE_CONSENSUS:
@@ -275,7 +272,7 @@ public abstract class InsertNode extends SearchNode implements ComparableConsens
   protected void deserializeMeasurementSchemas(DataInputStream stream) throws IOException {
     for (int i = 0; i < measurements.length; i++) {
       measurementSchemas[i] = MeasurementSchema.deserializeFrom(stream);
-      measurements[i] = measurementSchemas[i].getMeasurementId();
+      measurements[i] = measurementSchemas[i].getMeasurementName();
       dataTypes[i] = measurementSchemas[i].getType();
     }
   }
@@ -283,7 +280,7 @@ public abstract class InsertNode extends SearchNode implements ComparableConsens
   protected void deserializeMeasurementSchemas(ByteBuffer buffer) {
     for (int i = 0; i < measurements.length; i++) {
       measurementSchemas[i] = MeasurementSchema.deserializeFrom(buffer);
-      measurements[i] = measurementSchemas[i].getMeasurementId();
+      measurements[i] = measurementSchemas[i].getMeasurementName();
     }
   }
 
@@ -296,7 +293,6 @@ public abstract class InsertNode extends SearchNode implements ComparableConsens
   public abstract long getMinTime();
 
   // region partial insert
-  @TestOnly
   public void markFailedMeasurement(int index) {
     throw new UnsupportedOperationException();
   }
@@ -336,7 +332,7 @@ public abstract class InsertNode extends SearchNode implements ComparableConsens
 
   @Override
   public void setProgressIndex(ProgressIndex progressIndex) {
-    this.progressIndex = progressIndex.deepCopy();
+    this.progressIndex = progressIndex;
   }
 
   // endregion
@@ -395,6 +391,21 @@ public abstract class InsertNode extends SearchNode implements ComparableConsens
   @Override
   public List<PlanNode> getChildren() {
     return Collections.emptyList();
+  }
+
+  public String[] getRawMeasurements() {
+    String[] measurements = getMeasurements();
+    MeasurementSchema[] measurementSchemas = getMeasurementSchemas();
+    String[] rawMeasurements = new String[measurements.length];
+    for (int i = 0; i < measurements.length; i++) {
+      if (measurementSchemas[i] != null) {
+        // get raw measurement rather than alias
+        rawMeasurements[i] = measurementSchemas[i].getMeasurementName();
+      } else {
+        rawMeasurements[i] = measurements[i];
+      }
+    }
+    return rawMeasurements;
   }
 
   protected PartialPath readTargetPath(ByteBuffer buffer) throws IllegalPathException {

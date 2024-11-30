@@ -18,7 +18,11 @@ import org.apache.iotdb.db.queryengine.common.MPPQueryContext;
 import org.apache.iotdb.db.queryengine.common.QueryId;
 import org.apache.iotdb.db.queryengine.common.SessionInfo;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.PlanNode;
+import org.apache.iotdb.db.queryengine.plan.planner.plan.node.load.LoadTsFileNode;
+import org.apache.iotdb.db.queryengine.plan.planner.plan.node.pipe.PipeEnrichedInsertNode;
+import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.InsertRowNode;
+import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.RelationalDeleteDataNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.RelationalInsertRowNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.RelationalInsertRowsNode;
 import org.apache.iotdb.db.queryengine.plan.planner.plan.node.write.RelationalInsertTabletNode;
@@ -39,6 +43,7 @@ import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.AliasedRelation;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.AstVisitor;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.CoalesceExpression;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.ComparisonExpression;
+import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Delete;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Except;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Expression;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Identifier;
@@ -48,8 +53,10 @@ import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.InsertTablet;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Intersect;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Join;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.JoinUsing;
+import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.LoadTsFile;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.LogicalExpression;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Node;
+import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.PipeEnriched;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.QualifiedName;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Query;
 import org.apache.iotdb.db.queryengine.plan.relational.sql.ast.QuerySpecification;
@@ -62,10 +69,10 @@ import org.apache.iotdb.db.queryengine.plan.relational.type.InternalTypeManager;
 import org.apache.iotdb.db.queryengine.plan.statement.crud.InsertRowStatement;
 import org.apache.iotdb.db.queryengine.plan.statement.crud.InsertRowsStatement;
 import org.apache.iotdb.db.queryengine.plan.statement.crud.InsertTabletStatement;
+import org.apache.iotdb.db.storageengine.load.config.LoadTsFileConfigurator;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.apache.tsfile.read.common.type.LongType;
 import org.apache.tsfile.read.common.type.Type;
 
 import java.util.ArrayList;
@@ -84,6 +91,7 @@ import static org.apache.iotdb.db.queryengine.plan.relational.planner.QueryPlann
 import static org.apache.iotdb.db.queryengine.plan.relational.planner.QueryPlanner.coerceIfNecessary;
 import static org.apache.iotdb.db.queryengine.plan.relational.planner.ir.IrUtils.extractPredicates;
 import static org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Join.Type.CROSS;
+import static org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Join.Type.FULL;
 import static org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Join.Type.IMPLICIT;
 import static org.apache.iotdb.db.queryengine.plan.relational.sql.ast.Join.Type.INNER;
 
@@ -145,7 +153,7 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
       // put the pre-planned recursive subquery in the actual outer context to enable resolving
       // correlation
       return new RelationPlan(
-          expansion.getRoot(), expansion.getScope(), expansion.getFieldMappings());
+          expansion.getRoot(), expansion.getScope(), expansion.getFieldMappings(), outerContext);
     }
 
     Scope scope = analysis.getScope(table);
@@ -190,7 +198,7 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
             outputSymbols,
             tableColumnSchema,
             idAndAttributeIndexMap);
-    return new RelationPlan(tableScanNode, scope, outputSymbols);
+    return new RelationPlan(tableScanNode, scope, outputSymbols, outerContext);
 
     // Collection<Field> fields = analysis.getMaterializedViewStorageTableFields(node);
     // Query namedQuery = analysis.getNamedQuery(node);
@@ -214,8 +222,8 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
   @Override
   protected RelationPlan visitTableSubquery(TableSubquery node, Void context) {
     RelationPlan plan = process(node.getQuery(), context);
-    // TODO transmit outerContext
-    return new RelationPlan(plan.getRoot(), analysis.getScope(node), plan.getFieldMappings());
+    return new RelationPlan(
+        plan.getRoot(), analysis.getScope(node), plan.getFieldMappings(), outerContext);
   }
 
   @Override
@@ -290,14 +298,12 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
       // will not appear the situation: Cast(toSqlType(type))
       leftCoercions.put(leftOutput, left.getSymbol(leftField).toSymbolReference());
       leftJoinColumns.put(identifier, leftOutput);
-      queryContext.getTypeProvider().putTableModelType(leftOutput, LongType.INT64);
 
       // compute the coercion for the field on the right to the common supertype of left & right
       Symbol rightOutput = symbolAllocator.newSymbol(identifier, type);
       int rightField = joinAnalysis.getRightJoinFields().get(i);
       rightCoercions.put(rightOutput, right.getSymbol(rightField).toSymbolReference());
       rightJoinColumns.put(identifier, rightOutput);
-      queryContext.getTypeProvider().putTableModelType(rightOutput, LongType.INT64);
 
       clauses.add(new JoinNode.EquiJoinClause(leftOutput, rightOutput));
     }
@@ -329,12 +335,15 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
     for (Identifier column : joinColumns) {
       Symbol output = symbolAllocator.newSymbol(column, analysis.getType(column));
       outputs.add(output);
-      queryContext.getTypeProvider().putTableModelType(output, LongType.INT64);
-      assignments.put(
-          output,
-          new CoalesceExpression(
-              leftJoinColumns.get(column).toSymbolReference(),
-              rightJoinColumns.get(column).toSymbolReference()));
+      if (node.getType() == INNER) {
+        assignments.put(output, leftJoinColumns.get(column).toSymbolReference());
+      } else if (node.getType() == FULL) {
+        assignments.put(
+            output,
+            new CoalesceExpression(
+                leftJoinColumns.get(column).toSymbolReference(),
+                rightJoinColumns.get(column).toSymbolReference()));
+      }
     }
 
     for (int field : joinAnalysis.getOtherLeftFields()) {
@@ -352,8 +361,8 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
     return new RelationPlan(
         new ProjectNode(queryContext.getQueryId().genPlanNodeId(), join, assignments.build()),
         analysis.getScope(node),
-        outputs.build());
-    // outerContext);
+        outputs.build(),
+        outerContext);
   }
 
   public RelationPlan planJoin(
@@ -554,7 +563,7 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
       }
     }
 
-    return new RelationPlan(root, scope, outputSymbols);
+    return new RelationPlan(root, scope, outputSymbols, outerContext);
   }
 
   public static JoinNode.JoinType mapJoinType(Join.Type joinType) {
@@ -598,7 +607,7 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
       mappings = newMappings.build();
     }
 
-    return new RelationPlan(root, analysis.getScope(node), mappings);
+    return new RelationPlan(root, analysis.getScope(node), mappings, outerContext);
   }
 
   // ================================ Implemented later =====================================
@@ -645,14 +654,19 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
             insertTabletStatement.getRowCount(),
             insertTabletStatement.getColumnCategories());
     insertNode.setFailedMeasurementNumber(insertTabletStatement.getFailedMeasurementNumber());
-    return new RelationPlan(insertNode, analysis.getRootScope(), Collections.emptyList());
+    if (insertTabletStatement.isSingleDevice()) {
+      insertNode.setSingleDevice();
+    }
+    return new RelationPlan(
+        insertNode, analysis.getRootScope(), Collections.emptyList(), outerContext);
   }
 
   @Override
   protected RelationPlan visitInsertRow(InsertRow node, Void context) {
     InsertRowStatement insertRowStatement = node.getInnerTreeStatement();
     RelationalInsertRowNode insertNode = fromInsertRowStatement(insertRowStatement);
-    return new RelationPlan(insertNode, analysis.getRootScope(), Collections.emptyList());
+    return new RelationPlan(
+        insertNode, analysis.getRootScope(), Collections.emptyList(), outerContext);
   }
 
   protected RelationalInsertRowNode fromInsertRowStatement(InsertRowStatement insertRowStatement) {
@@ -685,6 +699,45 @@ public class RelationPlanner extends AstVisitor<RelationPlan, Void> {
     RelationalInsertRowsNode relationalInsertRowsNode =
         new RelationalInsertRowsNode(idAllocator.genPlanNodeId(), indices, insertRowStatements);
     return new RelationPlan(
-        relationalInsertRowsNode, analysis.getRootScope(), Collections.emptyList());
+        relationalInsertRowsNode, analysis.getRootScope(), Collections.emptyList(), outerContext);
+  }
+
+  @Override
+  protected RelationPlan visitLoadTsFile(LoadTsFile node, Void context) {
+    final List<Boolean> isTableModel = new ArrayList<>();
+    for (int i = 0; i < node.getResources().size(); i++) {
+      isTableModel.add(node.getModel().equals(LoadTsFileConfigurator.MODEL_TABLE_VALUE));
+    }
+    return new RelationPlan(
+        new LoadTsFileNode(
+            idAllocator.genPlanNodeId(), node.getResources(), isTableModel, node.getDatabase()),
+        analysis.getRootScope(),
+        Collections.emptyList(),
+        outerContext);
+  }
+
+  @Override
+  protected RelationPlan visitPipeEnriched(PipeEnriched node, Void context) {
+    RelationPlan relationPlan = node.getInnerStatement().accept(this, context);
+
+    if (relationPlan.getRoot() instanceof LoadTsFileNode) {
+      return relationPlan;
+    } else if (relationPlan.getRoot() instanceof InsertNode) {
+      return new RelationPlan(
+          new PipeEnrichedInsertNode((InsertNode) relationPlan.getRoot()),
+          analysis.getRootScope(),
+          Collections.emptyList(),
+          outerContext);
+    }
+    throw new IllegalStateException("Other WritePlanNode is not supported in current version.");
+  }
+
+  @Override
+  protected RelationPlan visitDelete(Delete node, Void context) {
+    return new RelationPlan(
+        new RelationalDeleteDataNode(idAllocator.genPlanNodeId(), node),
+        analysis.getRootScope(),
+        Collections.emptyList(),
+        outerContext);
   }
 }
