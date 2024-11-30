@@ -25,13 +25,16 @@ import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 
-/** Refer from "Gemini: Fast Failure Recovery in Distributed Training with In-Memory Checkpoints" */
-public class GeminiRegionGroupAllocator implements IRegionGroupAllocator {
+/**
+ * Refer from "Hydra: Resilient and Highly Available Remote Memory", git:
+ * Hydra/resilience_manager/is_main.c#L1923-L1969
+ */
+public class HydraRegionGroupAllocator implements IRegionGroupAllocator {
 
-  private static int CURRENT_NODE_GROUP_ID = 0;
-  private static int CURRENT_RING_GROUP_ID = 0;
+  private static final Random random = new Random();
 
   @Override
   public TRegionReplicaSet generateOptimalRegionReplicasDistribution(
@@ -46,26 +49,39 @@ public class GeminiRegionGroupAllocator implements IRegionGroupAllocator {
             .sorted(Map.Entry.comparingByKey())
             .map(Map.Entry::getValue)
             .collect(Collectors.toList());
-    int nodeGroupCnt = dataNodeList.size() / replicationFactor;
-    TRegionReplicaSet result = new TRegionReplicaSet();
-    result.setRegionId(consensusGroupId);
-    if (CURRENT_NODE_GROUP_ID < nodeGroupCnt - 1 || dataNodeList.size() % replicationFactor == 0) {
-      // GEMINI's group placement strategy
-      for (int i = 0; i < replicationFactor; i++) {
-        result.addToDataNodeLocations(
-            dataNodeList.get(CURRENT_NODE_GROUP_ID * replicationFactor + i).getLocation());
+
+    int i, j;
+    int avail_node = dataNodeList.size();
+    int[] selection = new int[replicationFactor];
+    int[] randomSelection = new int[avail_node];
+    for (j = 0; j < replicationFactor; j++) {
+      selection[j] = -1; // Not selected yet
+    }
+    for (i = 0; i < avail_node; i++) {
+      randomSelection[i] = -1;
+    }
+    if (avail_node <= replicationFactor) {
+      // Select all available nodes in this case
+      for (i = 0; i < avail_node; i++) {
+        selection[i] = i;
       }
     } else {
-      // GEMINI's ring placement strategy
-      int ringGroupSize = dataNodeList.size() % replicationFactor + replicationFactor;
-      for (int i = 0; i < replicationFactor; i++) {
-        int offset = (CURRENT_RING_GROUP_ID + i) % ringGroupSize;
-        result.addToDataNodeLocations(
-            dataNodeList.get(CURRENT_RING_GROUP_ID * ringGroupSize + offset).getLocation());
+      for (j = 0; j < replicationFactor; j++) {
+        int randomNum = random.nextInt(avail_node);
+        while (randomSelection[randomNum] != -1) {
+          randomNum += 1;
+          randomNum %= avail_node;
+        }
+        selection[j] = randomNum;
+        randomSelection[randomNum] = 1;
       }
-      CURRENT_RING_GROUP_ID = (CURRENT_RING_GROUP_ID + replicationFactor) % ringGroupSize;
     }
-    CURRENT_NODE_GROUP_ID = (CURRENT_NODE_GROUP_ID + 1) % nodeGroupCnt;
+
+    TRegionReplicaSet result = new TRegionReplicaSet();
+    result.setRegionId(consensusGroupId);
+    for (j = 0; j < replicationFactor; j++) {
+      result.addToDataNodeLocations(dataNodeList.get(selection[j]).getLocation());
+    }
     return result;
   }
 }

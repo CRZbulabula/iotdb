@@ -33,6 +33,7 @@ import org.apache.iotdb.confignode.manager.load.LoadManager;
 import org.apache.iotdb.confignode.manager.load.balancer.region.CopySetRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.GeminiRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.GreedyCopySetRegionGroupAllocator;
+import org.apache.iotdb.confignode.manager.load.balancer.region.HydraRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.RoundRobinRegionGroupAllocator;
@@ -69,6 +70,9 @@ public class RegionBalancer {
         break;
       case GEMINI:
         this.regionGroupAllocator = new GeminiRegionGroupAllocator();
+        break;
+      case HYDRA:
+        this.regionGroupAllocator = new HydraRegionGroupAllocator();
         break;
       case PGP:
         this.regionGroupAllocator = new PartiteGraphPlacementRegionGroupAllocator();
