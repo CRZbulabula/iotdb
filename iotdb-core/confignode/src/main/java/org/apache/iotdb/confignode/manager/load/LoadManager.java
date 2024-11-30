@@ -463,6 +463,10 @@ public class LoadManager {
     eventService.checkAndBroadcastConsensusGroupStatisticsChangeEventIfNecessary();
   }
 
+  public void balanceRegionLeaderAndPriority() {
+    routeBalancer.balanceRegionLeaderAndPriority();
+  }
+
   public LoadCache getLoadCache() {
     return loadCache;
   }

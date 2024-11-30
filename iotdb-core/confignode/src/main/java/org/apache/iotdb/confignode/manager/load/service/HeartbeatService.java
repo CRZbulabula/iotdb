@@ -37,6 +37,7 @@ import org.apache.iotdb.confignode.client.async.handlers.heartbeat.DataNodeHeart
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 import org.apache.iotdb.confignode.manager.IManager;
 import org.apache.iotdb.confignode.manager.consensus.ConsensusManager;
+import org.apache.iotdb.confignode.manager.load.LoadManager;
 import org.apache.iotdb.confignode.manager.load.cache.LoadCache;
 import org.apache.iotdb.confignode.manager.load.cache.node.ConfigNodeHeartbeatCache;
 import org.apache.iotdb.confignode.manager.node.NodeManager;
@@ -66,6 +67,8 @@ public class HeartbeatService {
 
   private static final long HEARTBEAT_INTERVAL =
       ConfigNodeDescriptor.getInstance().getConf().getHeartbeatIntervalInMs();
+  private static final long DYNAMIC_BALANCING_CYCLE =
+      ConfigNodeDescriptor.getInstance().getConf().getDynamicLeaderBalancingCycle();
 
   protected IManager configManager;
   private final LoadCache loadCache;
@@ -132,6 +135,9 @@ public class HeartbeatService {
                     genHeartbeatReq(), getNodeManager().getRegisteredDataNodes());
                 // Send heartbeat requests to all the registered AINodes
                 pingRegisteredAINodes(genMLHeartbeatReq(), getNodeManager().getRegisteredAINodes());
+                if (heartbeatCounter.get() % DYNAMIC_BALANCING_CYCLE == 0) {
+                  getLoadManager().balanceRegionLeaderAndPriority();
+                }
               }
             });
   }
@@ -286,5 +292,9 @@ public class HeartbeatService {
 
   private NodeManager getNodeManager() {
     return configManager.getNodeManager();
+  }
+
+  private LoadManager getLoadManager() {
+    return configManager.getLoadManager();
   }
 }
