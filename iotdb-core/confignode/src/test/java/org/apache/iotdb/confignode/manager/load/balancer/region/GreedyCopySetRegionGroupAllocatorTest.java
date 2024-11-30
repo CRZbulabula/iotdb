@@ -46,8 +46,8 @@ public class GreedyCopySetRegionGroupAllocatorTest {
   private static final Logger LOGGER =
       LoggerFactory.getLogger(GreedyCopySetRegionGroupAllocatorTest.class);
 
-  private static final GreedyRegionGroupAllocator GREEDY_ALLOCATOR =
-      new GreedyRegionGroupAllocator();
+  private static final RoundRobinRegionGroupAllocator GREEDY_ALLOCATOR =
+      new RoundRobinRegionGroupAllocator();
   private static final GreedyCopySetRegionGroupAllocator GREEDY_COPY_SET_ALLOCATOR =
       new GreedyCopySetRegionGroupAllocator();
 

@@ -25,7 +25,7 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
-import org.apache.iotdb.confignode.manager.load.balancer.region.GreedyRegionGroupAllocator.DataNodeEntry;
+import org.apache.iotdb.confignode.manager.load.balancer.region.RoundRobinRegionGroupAllocator.DataNodeEntry;
 
 import org.apache.tsfile.utils.Pair;
 
@@ -37,10 +37,11 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
+/** Placing the new RegionGroup through a heuristic search. */
 public class PartiteGraphPlacementRegionGroupAllocator implements IRegionGroupAllocator {
 
-  private static final GreedyRegionGroupAllocator GREEDY_ALLOCATOR =
-      new GreedyRegionGroupAllocator();
+  private static final RoundRobinRegionGroupAllocator GREEDY_ALLOCATOR =
+      new RoundRobinRegionGroupAllocator();
 
   private int subGraphCount;
   private int replicationFactor;

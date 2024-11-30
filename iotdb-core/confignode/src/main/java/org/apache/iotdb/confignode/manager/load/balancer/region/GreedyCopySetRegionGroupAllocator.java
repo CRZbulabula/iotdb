@@ -115,7 +115,7 @@ public class GreedyCopySetRegionGroupAllocator implements IRegionGroupAllocator 
       dfs(-1, 0, new int[replicationFactor], 0, 0, 0);
 
       if (optimalReplicaSets.isEmpty()) {
-        GreedyRegionGroupAllocator tmpAllocator = new GreedyRegionGroupAllocator();
+        RoundRobinRegionGroupAllocator tmpAllocator = new RoundRobinRegionGroupAllocator();
         return tmpAllocator.generateOptimalRegionReplicasDistribution(
             availableDataNodeMap,
             freeDiskSpaceMap,

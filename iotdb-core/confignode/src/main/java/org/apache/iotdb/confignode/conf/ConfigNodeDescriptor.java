@@ -331,6 +331,14 @@ public class ConfigNodeDescriptor {
               leaderDistributionPolicy));
     }
 
+    conf.setDynamicLeaderBalancingCycle(
+        Long.parseLong(
+            properties
+                .getProperty(
+                    "dynamic_leader_balancing_cycle",
+                    String.valueOf(conf.getDynamicLeaderBalancingCycle()))
+                .trim()));
+
     conf.setEnableAutoLeaderBalanceForRatisConsensus(
         Boolean.parseBoolean(
             properties

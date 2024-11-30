@@ -32,11 +32,11 @@ import java.util.Random;
 import java.util.stream.Collectors;
 
 /** Allocate Region Greedily */
-public class GreedyRegionGroupAllocator implements IRegionGroupAllocator {
+public class RoundRobinRegionGroupAllocator implements IRegionGroupAllocator {
 
   public static final Random RANDOM = new Random();
 
-  public GreedyRegionGroupAllocator() {
+  public RoundRobinRegionGroupAllocator() {
     // Empty constructor
   }
 

@@ -41,6 +41,7 @@ public abstract class AbstractLeaderBalancer {
   public static final String GREEDY_POLICY = "GREEDY";
   public static final String CFD_POLICY = "CFD";
   public static final String RANDOM_POLICY = "RANDOM";
+  public static final String LOGSTORE_POLICY = "LOGSTORE";
 
   // Set<RegionGroupId>
   protected final Set<TConsensusGroupId> regionGroupIntersection;
