@@ -33,6 +33,7 @@ import java.util.Random;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/** Refer from "Tiered Replication: A Cost-effective Alternative to Full Cluster Geo-replication" */
 public class TieredReplicationAllocator implements IRegionGroupAllocator {
 
   private final Random RANDOM = new Random();

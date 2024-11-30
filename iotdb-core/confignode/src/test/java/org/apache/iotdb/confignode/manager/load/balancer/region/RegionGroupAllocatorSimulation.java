@@ -46,10 +46,10 @@ public class RegionGroupAllocatorSimulation {
   private static final ConfigNodeConfig CONF = ConfigNodeDescriptor.getInstance().getConf();
   private static final int TEST_LOOP = 1;
   //    private static final double EXAM_LOOP = 100000;
-  private static final int MIN_DATA_NODE_NUM = 1;
-  private static final int MAX_DATA_NODE_NUM = 100;
-  private static final int MIN_DATA_REGION_PER_DATA_NODE = 1;
-  private static final int MAX_DATA_REGION_PER_DATA_NODE = 10;
+  private static final int MIN_DATA_NODE_NUM = 16;
+  private static final int MAX_DATA_NODE_NUM = 16;
+  private static final int MIN_DATA_REGION_PER_DATA_NODE = 8;
+  private static final int MAX_DATA_REGION_PER_DATA_NODE = 8;
   private static final int DATA_REPLICATION_FACTOR = 2;
 
   private static final Map<Integer, TDataNodeConfiguration> AVAILABLE_DATA_NODE_MAP =
@@ -122,7 +122,7 @@ public class RegionGroupAllocatorSimulation {
     double minScatterRatio = 1.0;
     for (int loop = 1; loop <= TEST_LOOP; loop++) {
       List<TRegionReplicaSet> allocateResult = new ArrayList<>();
-      IRegionGroupAllocator ALLOCATOR = new PartiteGraphPlacementRegionGroupAllocator();
+      IRegionGroupAllocator ALLOCATOR = new GeminiRegionGroupAllocator();
       for (int index = 0; index < dataRegionGroupNum; index++) {
         allocateResult.add(
             ALLOCATOR.generateOptimalRegionReplicasDistribution(
