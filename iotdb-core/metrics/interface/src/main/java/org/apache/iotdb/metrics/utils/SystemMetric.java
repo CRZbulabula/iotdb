@@ -49,6 +49,7 @@ public enum SystemMetric {
   PROCESS_MEM_RATIO("process_mem_ratio"),
   PROCESS_STATUS("process_status"),
   // system related
+  POWER_TOP_NUMBER("power_top_number"),
   SYS_CPU_LOAD("sys_cpu_load"),
   SYS_CPU_CORES("sys_cpu_cores"),
   LINUX_MEMORY_SIZE("linux_memory_size"),
