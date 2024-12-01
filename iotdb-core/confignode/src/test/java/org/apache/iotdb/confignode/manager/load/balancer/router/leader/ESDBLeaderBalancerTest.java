@@ -84,21 +84,21 @@ public class ESDBLeaderBalancerTest {
 
       databaseRegionGroupMap.get(DATABASE).add(regionGroupId);
       regionReplicaSetMap.put(
-        regionGroupId,
-        regionReplicaSet.getDataNodeLocations().stream()
-          .map(TDataNodeLocation::getDataNodeId)
-          .collect(Collectors.toSet()));
+          regionGroupId,
+          regionReplicaSet.getDataNodeLocations().stream()
+              .map(TDataNodeLocation::getDataNodeId)
+              .collect(Collectors.toSet()));
       regionLeaderMap.put(regionGroupId, leaderId);
     }
 
     // Do balancing
     Map<TConsensusGroupId, Integer> leaderDistribution =
-      BALANCER.generateOptimalLeaderDistribution(
-        databaseRegionGroupMap,
-        regionReplicaSetMap,
-        regionLeaderMap,
-        dataNodeStatisticsMap,
-        regionStatisticsMap);
+        BALANCER.generateOptimalLeaderDistribution(
+            databaseRegionGroupMap,
+            regionReplicaSetMap,
+            regionLeaderMap,
+            dataNodeStatisticsMap,
+            regionStatisticsMap);
     // All RegionGroup got a leader
     Assert.assertEquals(regionGroupNum, leaderDistribution.size());
 
@@ -106,10 +106,6 @@ public class ESDBLeaderBalancerTest {
     leaderDistribution.values().forEach(leaderId -> leaderCounter.merge(leaderId, 1, Integer::sum));
     int minLeaderNum = leaderCounter.values().stream().min(Integer::compareTo).orElse(0);
     int maxLeaderNum = leaderCounter.values().stream().max(Integer::compareTo).orElse(0);
-    System.out.println(
-      "Min Leader Num: "
-        + minLeaderNum
-        + ", Max Leader Num: "
-        + maxLeaderNum);
+    System.out.println("Min Leader Num: " + minLeaderNum + ", Max Leader Num: " + maxLeaderNum);
   }
 }

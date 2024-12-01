@@ -27,7 +27,6 @@ import org.apache.iotdb.commons.exception.StartupException;
 import org.apache.iotdb.commons.service.StartupChecks;
 import org.apache.iotdb.confignode.client.async.CnToDnInternalServiceAsyncRequestManager;
 import org.apache.iotdb.confignode.client.sync.SyncDataNodeClientPool;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.AbstractLeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.priority.IPriorityBalancer;
 import org.apache.iotdb.consensus.ConsensusFactory;
 
@@ -154,17 +153,6 @@ public class ConfigNodeStartupCheck extends StartupChecks {
           String.format(
               "%s or %s", ConsensusFactory.SIMPLE_CONSENSUS, ConsensusFactory.RATIS_CONSENSUS),
           "the SchemaRegion doesn't support org.apache.iotdb.consensus.iot.FastIoTConsensus");
-    }
-
-    // The leader distribution policy is limited
-    if (!AbstractLeaderBalancer.GREEDY_POLICY.equals(CONF.getLeaderDistributionPolicy())
-        && !AbstractLeaderBalancer.CFD_POLICY.equals(CONF.getLeaderDistributionPolicy())
-        && !AbstractLeaderBalancer.RANDOM_POLICY.equals(CONF.getLeaderDistributionPolicy())) {
-      throw new ConfigurationException(
-          "leader_distribution_policy",
-          CONF.getRoutePriorityPolicy(),
-          "GREEDY or MIN_COST_FLOW",
-          "an unrecognized leader_distribution_policy is set");
     }
 
     // The route priority policy is limited
