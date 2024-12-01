@@ -37,6 +37,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
@@ -62,6 +63,8 @@ public class SystemMetrics implements IMetricSet {
   private final com.sun.management.OperatingSystemMXBean osMxBean;
   private Set<FileStore> fileStores = new HashSet<>();
   private static final String FAILED_TO_STATISTIC = "Failed to statistic the size of {}, because";
+
+  private static final String POWER_TOP_PATH = "/home/ubuntu/power_num.txt";
 
   public SystemMetrics() {
     this.osMxBean = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
@@ -120,6 +123,14 @@ public class SystemMetrics implements IMetricSet {
             SystemTag.NAME.toString(),
             SYSTEM)
         .set(osMxBean.getAvailableProcessors());
+
+    metricService.createAutoGauge(
+        SystemMetric.POWER_TOP_NUMBER.toString(),
+        MetricLevel.CORE,
+        this,
+        SystemMetrics::getPowerTopNumber,
+        SystemTag.NAME.toString(),
+        SYSTEM);
   }
 
   private void removeSystemCpuInfo(AbstractMetricService metricService) {
@@ -131,6 +142,12 @@ public class SystemMetrics implements IMetricSet {
 
     metricService.remove(
         MetricType.GAUGE, SystemMetric.SYS_CPU_CORES.toString(), SystemTag.NAME.toString(), SYSTEM);
+
+    metricService.remove(
+        MetricType.AUTO_GAUGE,
+        SystemMetric.POWER_TOP_NUMBER.toString(),
+        SystemTag.NAME.toString(),
+        SYSTEM);
   }
 
   private void collectSystemMemInfo(AbstractMetricService metricService) {
@@ -358,6 +375,19 @@ public class SystemMetrics implements IMetricSet {
       }
     }
     return sysAvailableSpace;
+  }
+
+  public long getPowerTopNumber() {
+    double powerTopNumber = 0;
+    try (BufferedReader reader = new BufferedReader(new FileReader(POWER_TOP_PATH))) {
+      String line = reader.readLine();
+      if (line != null) {
+        powerTopNumber = Double.parseDouble(line.trim());
+      }
+    } catch (Exception e) {
+      logger.error("Can not get power top number", e);
+    }
+    return (long) (powerTopNumber * 100);
   }
 
   public static SystemMetrics getInstance() {
