@@ -26,6 +26,7 @@ import org.apache.iotdb.confignode.manager.load.cache.region.RegionStatistics;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -162,7 +163,9 @@ public class LogStoreLeaderBalancer extends AbstractLeaderBalancer {
     Arrays.fill(vertexHeadEdge, -1);
 
     /* Construct edges: sVertex -> rVertices */
-    for (int rVertex : rVertexMap.values()) {
+    List<Integer> rVerticesVal = new ArrayList<>(rVertexMap.values());
+    Collections.shuffle(rVerticesVal);
+    for (int rVertex : rVerticesVal) {
       // Capacity: 1, select exactly 1 leader for each RegionGroup
       addAdjacentEdges(S_VERTEX, rVertex, 1);
     }
