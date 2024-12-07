@@ -49,6 +49,9 @@ public class GeminiRegionGroupAllocator implements IRegionGroupAllocator {
     int nodeGroupCnt = dataNodeList.size() / replicationFactor;
     TRegionReplicaSet result = new TRegionReplicaSet();
     result.setRegionId(consensusGroupId);
+    // Reset global ids
+    CURRENT_RING_GROUP_ID = CURRENT_RING_GROUP_ID % replicationFactor;
+    CURRENT_NODE_GROUP_ID = CURRENT_NODE_GROUP_ID % nodeGroupCnt;
     if (CURRENT_NODE_GROUP_ID < nodeGroupCnt - 1 || dataNodeList.size() % replicationFactor == 0) {
       // GEMINI's group placement strategy
       for (int i = 0; i < replicationFactor; i++) {

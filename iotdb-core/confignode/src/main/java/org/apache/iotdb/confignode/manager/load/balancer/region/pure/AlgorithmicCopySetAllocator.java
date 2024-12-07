@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.apache.iotdb.confignode.manager.load.balancer.region;
+package org.apache.iotdb.confignode.manager.load.balancer.region.pure;
 
 import org.apache.iotdb.common.rpc.thrift.TConsensusGroupId;
 import org.apache.iotdb.common.rpc.thrift.TConsensusGroupType;
@@ -25,35 +25,39 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
+import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
-import java.util.TreeMap;
+import java.util.SplittableRandom;
 
 /** Refer from "Copysets: Reducing the Frequency of Data Loss in Cloud Storage" */
-public class CopySetRegionGroupAllocator implements IRegionGroupAllocator {
+public class AlgorithmicCopySetAllocator implements IRegionGroupAllocator {
 
-  private final Random RANDOM = new Random();
-  private final Map<TConsensusGroupType, Integer> dataNodeNumMap = new TreeMap<>();
-  private final Map<TConsensusGroupType, Map<Integer, List<List<Integer>>>> COPY_SETS =
-      new TreeMap<>();
+  //  private static final int MAX_COPY_SET_NUM = 2020;
+  private static final SplittableRandom RANDOM = new SplittableRandom();
 
-  private void init(
-      int dataNodeNum,
-      int replicationFactor,
-      int loadFactor,
-      TConsensusGroupType consensusGroupType) {
-    this.dataNodeNumMap.put(consensusGroupType, dataNodeNum);
-    Map<Integer, List<List<Integer>>> copy_sets =
-        COPY_SETS.computeIfAbsent(consensusGroupType, k -> new TreeMap<>());
-    // sum of COPY_SETS value .size()
-    int p = copy_sets.values().stream().mapToInt(List::size).sum();
+  private int dataNodeNum;
+  //  private int[] REGION_COUNTER;
+  //  private int[] COPY_SETS_COUNTER;
+  //  private CopySet[][] COPY_SETS;
+
+  private static final int MAX_NODE_NUM = 1010;
+  private static final int MAX_COPY_SET_NUM = 20;
+  private int[] COPY_SETS_COUNTER;
+  //  private final int[][][] COPY_SETS = new
+  // int[MAX_NODE_NUM][MAX_COPY_SET_NUM][MAX_REPLICATION_FACTOR];
+  private int[][] COPY_SETS;
+
+  public void init(int dataNodeNum, int replicationFactor, int loadFactor) {
+    if (dataNodeNum < replicationFactor) {
+      return;
+    }
+    COPY_SETS_COUNTER = new int[dataNodeNum + 1];
+    COPY_SETS = new int[dataNodeNum + 1][MAX_COPY_SET_NUM * replicationFactor];
+    int p = 0;
     BitSet bitSet = new BitSet(dataNodeNum + 1);
-    copy_sets.values().forEach(cps -> cps.forEach(cp -> cp.forEach(bitSet::set)));
     while (p < loadFactor || bitSet.cardinality() < dataNodeNum) {
       int[] permutation = new int[dataNodeNum];
       for (int i = 1; i <= dataNodeNum; i++) {
@@ -67,14 +71,20 @@ public class CopySetRegionGroupAllocator implements IRegionGroupAllocator {
       }
       p += 1;
       for (int i = 0; i + replicationFactor <= dataNodeNum; i += replicationFactor) {
-        List<Integer> copySet = new ArrayList<>();
+        int[] copySet = new int[replicationFactor];
         for (int j = 0; j < replicationFactor; j++) {
           int e = permutation[i + j];
-          copySet.add(e);
+          copySet[j] = e;
           bitSet.set(e);
         }
         for (int c : copySet) {
-          copy_sets.computeIfAbsent(c, k -> new ArrayList<>()).add(copySet);
+          System.arraycopy(
+              copySet,
+              0,
+              COPY_SETS[c],
+              COPY_SETS_COUNTER[c] * replicationFactor,
+              replicationFactor);
+          COPY_SETS_COUNTER[c]++;
         }
       }
     }
@@ -88,8 +98,9 @@ public class CopySetRegionGroupAllocator implements IRegionGroupAllocator {
       List<TRegionReplicaSet> databaseAllocatedRegionGroups,
       int replicationFactor,
       TConsensusGroupId consensusGroupId) {
-    if (this.dataNodeNumMap.getOrDefault(consensusGroupId.getType(), -1)
-        != availableDataNodeMap.size()) {
+    int dataNodeNumber = availableDataNodeMap.size();
+    if (dataNodeNum != dataNodeNumber) {
+      dataNodeNum = dataNodeNumber;
       int regionPerDataNode;
       if (consensusGroupId.getType().equals(TConsensusGroupType.SchemaRegion)) {
         regionPerDataNode =
@@ -98,37 +109,30 @@ public class CopySetRegionGroupAllocator implements IRegionGroupAllocator {
         regionPerDataNode =
             (int) ConfigNodeDescriptor.getInstance().getConf().getDataRegionPerDataNode();
       }
-      init(
-          availableDataNodeMap.size(),
-          replicationFactor,
-          regionPerDataNode,
-          consensusGroupId.getType());
+      init(dataNodeNumber, replicationFactor, regionPerDataNode);
     }
 
-    TRegionReplicaSet result = new TRegionReplicaSet();
-    int[] regionCounter = new int[availableDataNodeMap.size() + 1];
-    Arrays.fill(regionCounter, 0);
+    int[] REGION_COUNTER = new int[dataNodeNumber + 1];
     for (TRegionReplicaSet regionGroup : allocatedRegionGroups) {
       List<TDataNodeLocation> dataNodeLocations = regionGroup.getDataNodeLocations();
       for (TDataNodeLocation dataNodeLocation : dataNodeLocations) {
-        regionCounter[dataNodeLocation.getDataNodeId()]++;
+        REGION_COUNTER[dataNodeLocation.getDataNodeId()]++;
       }
     }
+    TRegionReplicaSet result = new TRegionReplicaSet();
     int firstRegion = -1, minCount = Integer.MAX_VALUE;
-    int dataNodeNumber = dataNodeNumMap.get(consensusGroupId.getType());
     for (int i = 1; i <= dataNodeNumber; i++) {
-      if (regionCounter[i] < minCount) {
-        minCount = regionCounter[i];
+      if (REGION_COUNTER[i] < minCount) {
+        minCount = REGION_COUNTER[i];
         firstRegion = i;
-      } else if (regionCounter[i] == minCount && RANDOM.nextBoolean()) {
+      } else if (REGION_COUNTER[i] == minCount && RANDOM.nextBoolean()) {
         firstRegion = i;
       }
     }
-    List<Integer> copySet =
-        COPY_SETS
-            .get(consensusGroupId.getType())
-            .get(firstRegion)
-            .get(RANDOM.nextInt(COPY_SETS.get(consensusGroupId.getType()).get(firstRegion).size()));
+    int copySetIndex = RANDOM.nextInt(COPY_SETS_COUNTER[firstRegion]);
+    int[] copySet = new int[replicationFactor];
+    System.arraycopy(
+        COPY_SETS[firstRegion], copySetIndex * replicationFactor, copySet, 0, replicationFactor);
     for (int dataNodeId : copySet) {
       result.addToDataNodeLocations(availableDataNodeMap.get(dataNodeId).getLocation());
     }
