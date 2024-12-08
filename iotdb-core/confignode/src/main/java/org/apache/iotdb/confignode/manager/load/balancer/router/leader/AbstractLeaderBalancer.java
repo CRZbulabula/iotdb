@@ -43,6 +43,7 @@ public abstract class AbstractLeaderBalancer {
   public static final String RANDOM_POLICY = "RANDOM";
   public static final String LOGSTORE_POLICY = "LOGSTORE";
   public static final String ESDB_POLICY = "ESDB";
+  public static final String AEROSPIKE_POLICY = "AEROSPIKE";
 
   // Set<RegionGroupId>
   protected final Set<TConsensusGroupId> regionGroupIntersection;

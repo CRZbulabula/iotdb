@@ -34,6 +34,7 @@ import org.apache.iotdb.confignode.manager.IManager;
 import org.apache.iotdb.confignode.manager.ProcedureManager;
 import org.apache.iotdb.confignode.manager.load.LoadManager;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.AbstractLeaderBalancer;
+import org.apache.iotdb.confignode.manager.load.balancer.router.leader.AerospikeLeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.CostFlowSelectionLeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.ESDBLeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.GreedyLeaderBalancer;
@@ -135,6 +136,9 @@ public class RouteBalancer implements IClusterStatusSubscriber {
         break;
       case AbstractLeaderBalancer.ESDB_POLICY:
         this.leaderBalancer = new ESDBLeaderBalancer();
+        break;
+      case AbstractLeaderBalancer.AEROSPIKE_POLICY:
+        this.leaderBalancer = new AerospikeLeaderBalancer();
         break;
       case AbstractLeaderBalancer.CFD_POLICY:
       default:

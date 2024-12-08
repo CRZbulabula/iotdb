@@ -23,6 +23,7 @@ import org.apache.iotdb.common.rpc.thrift.TAINodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TAINodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TConfigNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TConsensusGroupId;
+import org.apache.iotdb.common.rpc.thrift.TConsensusGroupType;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TFlushReq;
@@ -259,12 +260,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.apache.iotdb.commons.conf.IoTDBConstant.ONE_LEVEL_PATH_WILDCARD;
+import static org.apache.iotdb.confignode.manager.load.balancer.region.AerospikeRegionGroupAllocator.generateReplicationList;
 
 /** Entry of all management, AssignPartitionManager, AssignRegionManager. */
 public class ConfigManager implements IManager {
@@ -2689,5 +2693,64 @@ public class ConfigManager implements IManager {
     resp.setStatus(status);
     resp.setConfigNodeList(getNodeManager().getRegisteredConfigNodes());
     return resp;
+  }
+
+  @Override
+  public TSStatus migrateRegions() {
+    List<Integer> dataNodeIds =
+        getNodeManager().getRegisteredDataNodes().stream()
+            .map(TDataNodeConfiguration::getLocation)
+            .map(TDataNodeLocation::getDataNodeId)
+            .collect(Collectors.toList());
+    List<TRegionReplicaSet> dataRegions =
+        getPartitionManager().getAllReplicaSets(TConsensusGroupType.DataRegion);
+    ForkJoinPool customThreadPool = new ForkJoinPool(dataRegions.size());
+    CompletableFuture.runAsync(
+        () ->
+            dataRegions.parallelStream()
+                .forEach(
+                    regionReplicaSet -> {
+                      try {
+                        int regionId = regionReplicaSet.getRegionId().getId();
+                        List<Integer> originalDataNodeIds =
+                            regionReplicaSet.getDataNodeLocations().stream()
+                                .map(TDataNodeLocation::getDataNodeId)
+                                .collect(Collectors.toList());
+                        int replicationFactor = originalDataNodeIds.size();
+                        List<Integer> targetDataNodeIds =
+                            generateReplicationList(regionId, dataNodeIds)
+                                .subList(0, replicationFactor);
+                        boolean[] isDataNodeEmployed = new boolean[replicationFactor];
+                        Arrays.fill(isDataNodeEmployed, false);
+                        for (int originalId : originalDataNodeIds) {
+                          if (targetDataNodeIds.contains(originalId)) {
+                            isDataNodeEmployed[targetDataNodeIds.indexOf(originalId)] = true;
+                          }
+                        }
+                        for (int originalId : originalDataNodeIds) {
+                          if (!targetDataNodeIds.contains(originalId)) {
+                            for (int j = 0; j < replicationFactor; j++) {
+                              if (!isDataNodeEmployed[j]) {
+                                isDataNodeEmployed[j] = true;
+                                getProcedureManager()
+                                    .migrateRegion(
+                                        new TMigrateRegionReq(
+                                            regionId, originalId, targetDataNodeIds.get(j)));
+                                break;
+                              }
+                            }
+                          }
+                        }
+                      } catch (Exception e) {
+                        LOGGER.error(
+                            "Failed to migrate region {} because {}",
+                            regionReplicaSet,
+                            e.getMessage());
+                      }
+                    }),
+        customThreadPool);
+    return new TSStatus(TSStatusCode.SUCCESS_STATUS.getStatusCode())
+        .setMessage(
+            "Successfully submit migrate regions task! IoTDB will migrate regions automatically.");
   }
 }

@@ -30,6 +30,7 @@ import org.apache.iotdb.confignode.exception.DatabaseNotExistsException;
 import org.apache.iotdb.confignode.exception.NotEnoughDataNodeException;
 import org.apache.iotdb.confignode.manager.IManager;
 import org.apache.iotdb.confignode.manager.load.LoadManager;
+import org.apache.iotdb.confignode.manager.load.balancer.region.AerospikeRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.CopySetRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.GeminiRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.GreedyCopySetRegionGroupAllocator;
@@ -73,6 +74,9 @@ public class RegionBalancer {
         break;
       case HYDRA:
         this.regionGroupAllocator = new HydraRegionGroupAllocator();
+        break;
+      case AEROSPIKE:
+        this.regionGroupAllocator = new AerospikeRegionGroupAllocator();
         break;
       case PGP:
         this.regionGroupAllocator = new PartiteGraphPlacementRegionGroupAllocator();
@@ -180,6 +184,7 @@ public class RegionBalancer {
     TIERED_REPLICATION,
     GEMINI,
     HYDRA,
+    AEROSPIKE,
     PGP
   }
 }

@@ -22,6 +22,7 @@ package org.apache.iotdb.commons.partition.executor;
 import org.apache.iotdb.commons.partition.executor.hash.APHashExecutor;
 import org.apache.iotdb.commons.partition.executor.hash.BKDRHashExecutor;
 import org.apache.iotdb.commons.partition.executor.hash.JSHashExecutor;
+import org.apache.iotdb.commons.partition.executor.hash.RIPEMD160Executor;
 import org.apache.iotdb.commons.partition.executor.hash.SDBMHashExecutor;
 
 import org.apache.tsfile.file.metadata.IDeviceID;
@@ -41,6 +42,9 @@ public class HashExecutorTest {
   private static final SDBMHashExecutor SDBM_HASH_EXECUTOR =
       new SDBMHashExecutor(TEST_SERIES_SLOT_NUM);
 
+  private static final RIPEMD160Executor RIPEMD160_HASH_EXECUTOR =
+      new RIPEMD160Executor(TEST_SERIES_SLOT_NUM);
+
   @Test
   public void hashExecutorCompatibleTest() {
     for (int suffix = 0; suffix < 1000; suffix++) {
@@ -58,6 +62,9 @@ public class HashExecutorTest {
       Assert.assertEquals(
           SDBM_HASH_EXECUTOR.getSeriesPartitionSlot(device),
           SDBM_HASH_EXECUTOR.getSeriesPartitionSlot(deviceID));
+      Assert.assertEquals(
+          RIPEMD160_HASH_EXECUTOR.getSeriesPartitionSlot(device),
+          RIPEMD160_HASH_EXECUTOR.getSeriesPartitionSlot(deviceID));
     }
   }
 }

@@ -875,8 +875,6 @@ public class ProcedureManager {
   }
 
   public TSStatus migrateRegion(TMigrateRegionReq migrateRegionReq) {
-    env.getSubmitRegionMigrateLock().lock();
-    try {
       TConsensusGroupId regionGroupId;
       Optional<TConsensusGroupId> optional =
           configManager
@@ -890,64 +888,67 @@ public class ProcedureManager {
             .setMessage("get region group id fail");
       }
 
-      // find original dn and dest dn
-      final TDataNodeLocation originalDataNode =
-          configManager
-              .getNodeManager()
-              .getRegisteredDataNode(migrateRegionReq.getFromId())
-              .getLocation();
-      final TDataNodeLocation destDataNode =
-          configManager
-              .getNodeManager()
-              .getRegisteredDataNode(migrateRegionReq.getToId())
-              .getLocation();
-      // select coordinator for adding peer
-      RegionMaintainHandler handler = env.getRegionMaintainHandler();
-      // TODO: choose the DataNode which has lowest load
-      final TDataNodeLocation coordinatorForAddPeer =
-          handler
-              .filterDataNodeWithOtherRegionReplica(
-                  regionGroupId,
-                  destDataNode,
-                  NodeStatus.Running,
-                  NodeStatus.Removing,
-                  NodeStatus.ReadOnly)
-              .orElse(null);
-      // Select coordinator for removing peer
-      // For now, destDataNode temporarily acts as the coordinatorForRemovePeer
-      final TDataNodeLocation coordinatorForRemovePeer = destDataNode;
+    // find original dn and dest dn
+    final TDataNodeLocation originalDataNode =
+        configManager
+            .getNodeManager()
+            .getRegisteredDataNode(migrateRegionReq.getFromId())
+            .getLocation();
+    final TDataNodeLocation destDataNode =
+        configManager
+            .getNodeManager()
+            .getRegisteredDataNode(migrateRegionReq.getToId())
+            .getLocation();
+    // select coordinator for adding peer
+    RegionMaintainHandler handler = new RegionMaintainHandler(configManager);
+    // TODO: choose the DataNode which has lowest load
+    final TDataNodeLocation coordinatorForAddPeer =
+        handler
+            .filterDataNodeWithOtherRegionReplica(
+                regionGroupId,
+                destDataNode,
+                NodeStatus.Running,
+                NodeStatus.Removing,
+                NodeStatus.ReadOnly)
+            .orElse(null);
+    // Select coordinator for removing peer
+    // For now, destDataNode temporarily acts as the coordinatorForRemovePeer
+    final TDataNodeLocation coordinatorForRemovePeer = destDataNode;
 
-      TSStatus status =
-          checkRegionMigrate(
-              migrateRegionReq,
-              regionGroupId,
-              originalDataNode,
-              destDataNode,
-              coordinatorForAddPeer);
-      if (status.getCode() != TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
-        return status;
-      }
-
-      // finally, submit procedure
-      this.executor.submitProcedure(
-          new RegionMigrateProcedure(
-              regionGroupId,
-              originalDataNode,
-              destDataNode,
-              coordinatorForAddPeer,
-              coordinatorForRemovePeer));
-      LOGGER.info(
-          "Submit RegionMigrateProcedure successfully, Region: {}, Origin DataNode: {}, Dest DataNode: {}, Add Coordinator: {}, Remove Coordinator: {}",
-          regionGroupId,
-          originalDataNode,
-          destDataNode,
-          coordinatorForAddPeer,
-          coordinatorForRemovePeer);
-
-      return new TSStatus(TSStatusCode.SUCCESS_STATUS.getStatusCode());
-    } finally {
-      env.getSubmitRegionMigrateLock().unlock();
+    TSStatus status =
+        checkRegionMigrate(
+            migrateRegionReq, regionGroupId, originalDataNode, destDataNode, coordinatorForAddPeer);
+    if (status.getCode() != TSStatusCode.SUCCESS_STATUS.getStatusCode()) {
+      return status;
     }
+
+    // finally, submit procedure
+    long procId =
+        this.executor.submitProcedure(
+            new RegionMigrateProcedure(
+                regionGroupId,
+                originalDataNode,
+                destDataNode,
+                coordinatorForAddPeer,
+                coordinatorForRemovePeer));
+    LOGGER.info(
+        "Submit RegionMigrateProcedure successfully, Region: {}, Origin DataNode: {}, Dest DataNode: {}, Add Coordinator: {}, Remove Coordinator: {}",
+        regionGroupId,
+        originalDataNode,
+        destDataNode,
+        coordinatorForAddPeer,
+        coordinatorForRemovePeer);
+    boolean isMigrationSuccess =
+        waitingProcedureFinished(Collections.singletonList(procId), new ArrayList<>());
+    LOGGER.info(
+        "RegionMigrateProcedure {}, Region: {}, Origin DataNode: {}, Dest DataNode: {}, Add Coordinator: {}, Remove Coordinator: {}",
+        isMigrationSuccess ? "succeed" : "failed",
+        regionGroupId,
+        originalDataNode,
+        destDataNode,
+        coordinatorForAddPeer,
+        coordinatorForRemovePeer);
+    return new TSStatus(TSStatusCode.SUCCESS_STATUS.getStatusCode());
   }
 
   // endregion

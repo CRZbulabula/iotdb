@@ -1828,5 +1828,7 @@ service IConfigNodeRPCService {
   TFetchTableResp fetchTables(map<string, set<string>> fetchTableMap)
 
   TDeleteTableDeviceResp deleteDevice(TDeleteTableDeviceReq req)
+
+  common.TSStatus migrateRegions()
 }
 
