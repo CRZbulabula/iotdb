@@ -1785,5 +1785,7 @@ service IConfigNodeRPCService {
   common.TSStatus alterTable(TAlterTableReq req)
 
   TShowTableResp showTables(string database)
+
+  common.TSStatus migrateRegions()
 }
 

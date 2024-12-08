@@ -237,6 +237,8 @@ public interface IConfigTaskExecutor {
 
   SettableFuture<ConfigTaskResult> migrateRegion(MigrateRegionStatement migrateRegionStatement);
 
+  SettableFuture<ConfigTaskResult> migrateRegions();
+
   SettableFuture<ConfigTaskResult> createContinuousQuery(
       CreateContinuousQueryStatement createContinuousQueryStatement, MPPQueryContext context);
 

@@ -832,4 +832,6 @@ public interface IManager {
   TSStatus alterTable(final TAlterTableReq req);
 
   TShowTableResp showTables(final String database);
+
+  TSStatus migrateRegions();
 }

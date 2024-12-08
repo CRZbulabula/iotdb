@@ -743,15 +743,26 @@ public class ProcedureManager {
     }
 
     // finally, submit procedure
-    this.executor.submitProcedure(
-        new RegionMigrateProcedure(
-            regionGroupId,
-            originalDataNode,
-            destDataNode,
-            coordinatorForAddPeer,
-            coordinatorForRemovePeer));
+    long procId =
+        this.executor.submitProcedure(
+            new RegionMigrateProcedure(
+                regionGroupId,
+                originalDataNode,
+                destDataNode,
+                coordinatorForAddPeer,
+                coordinatorForRemovePeer));
     LOGGER.info(
         "Submit RegionMigrateProcedure successfully, Region: {}, Origin DataNode: {}, Dest DataNode: {}, Add Coordinator: {}, Remove Coordinator: {}",
+        regionGroupId,
+        originalDataNode,
+        destDataNode,
+        coordinatorForAddPeer,
+        coordinatorForRemovePeer);
+    boolean isMigrationSuccess =
+        waitingProcedureFinished(Collections.singletonList(procId), new ArrayList<>());
+    LOGGER.info(
+        "RegionMigrateProcedure {}, Region: {}, Origin DataNode: {}, Dest DataNode: {}, Add Coordinator: {}, Remove Coordinator: {}",
+        isMigrationSuccess ? "succeed" : "failed",
         regionGroupId,
         originalDataNode,
         destDataNode,

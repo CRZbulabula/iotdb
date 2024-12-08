@@ -196,6 +196,13 @@ public class MppSharedCommonConfig implements CommonConfig {
   }
 
   @Override
+  public CommonConfig setRegionGroupAllocatePolicy(String regionGroupAllocatePolicy) {
+    cnConfig.setRegionGroupAllocatePolicy(regionGroupAllocatePolicy);
+    dnConfig.setRegionGroupAllocatePolicy(regionGroupAllocatePolicy);
+    return this;
+  }
+
+  @Override
   public CommonConfig setDataRegionGroupExtensionPolicy(String dataRegionGroupExtensionPolicy) {
     cnConfig.setDataRegionGroupExtensionPolicy(dataRegionGroupExtensionPolicy);
     dnConfig.setDataRegionGroupExtensionPolicy(dataRegionGroupExtensionPolicy);
@@ -320,6 +327,13 @@ public class MppSharedCommonConfig implements CommonConfig {
   }
 
   @Override
+  public CommonConfig setLeaderDistributionPolicy(String leaderDistributionPolicy) {
+    cnConfig.setLeaderDistributionPolicy(leaderDistributionPolicy);
+    dnConfig.setLeaderDistributionPolicy(leaderDistributionPolicy);
+    return this;
+  }
+
+  @Override
   public CommonConfig setQueryThreadCount(int queryThreadCount) {
     cnConfig.setQueryThreadCount(queryThreadCount);
     dnConfig.setQueryThreadCount(queryThreadCount);
@@ -351,6 +365,13 @@ public class MppSharedCommonConfig implements CommonConfig {
   public CommonConfig setSeriesSlotNum(int seriesSlotNum) {
     cnConfig.setSeriesSlotNum(seriesSlotNum);
     dnConfig.setSeriesSlotNum(seriesSlotNum);
+    return this;
+  }
+
+  @Override
+  public CommonConfig setSeriesPartitionExecutorClass(String seriesPartitionExecutorClass) {
+    cnConfig.setSeriesPartitionExecutorClass(seriesPartitionExecutorClass);
+    dnConfig.setSeriesPartitionExecutorClass(seriesPartitionExecutorClass);
     return this;
   }
 

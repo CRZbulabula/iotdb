@@ -1303,4 +1303,9 @@ public class ConfigNodeRPCServiceProcessor implements IConfigNodeRPCService.Ifac
   public TShowTableResp showTables(final String database) {
     return configManager.showTables(database);
   }
+
+  @Override
+  public TSStatus migrateRegions() {
+    return configManager.migrateRegions();
+  }
 }

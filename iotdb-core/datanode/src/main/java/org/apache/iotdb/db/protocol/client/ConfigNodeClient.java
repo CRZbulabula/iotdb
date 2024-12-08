@@ -1278,6 +1278,12 @@ public class ConfigNodeClient implements IConfigNodeRPCService.Iface, ThriftClie
         () -> client.showTables(database), resp -> !updateConfigNodeLeader(resp.status));
   }
 
+  @Override
+  public TSStatus migrateRegions() throws TException {
+    return executeRemoteCallWithRetry(
+        () -> client.migrateRegions(), resp -> !updateConfigNodeLeader(resp));
+  }
+
   public static class Factory extends ThriftClientFactory<ConfigRegionId, ConfigNodeClient> {
 
     public Factory(

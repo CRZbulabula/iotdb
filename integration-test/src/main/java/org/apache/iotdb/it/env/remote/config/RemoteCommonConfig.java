@@ -141,6 +141,11 @@ public class RemoteCommonConfig implements CommonConfig {
   }
 
   @Override
+  public CommonConfig setRegionGroupAllocatePolicy(String regionGroupAllocatePolicy) {
+    return this;
+  }
+
+  @Override
   public CommonConfig setDataRegionGroupExtensionPolicy(String dataRegionGroupExtensionPolicy) {
     return this;
   }
@@ -225,6 +230,11 @@ public class RemoteCommonConfig implements CommonConfig {
   }
 
   @Override
+  public CommonConfig setLeaderDistributionPolicy(String leaderDistributionPolicy) {
+    return this;
+  }
+
+  @Override
   public CommonConfig setQueryThreadCount(int queryThreadCount) {
     return this;
   }
@@ -246,6 +256,11 @@ public class RemoteCommonConfig implements CommonConfig {
 
   @Override
   public CommonConfig setSeriesSlotNum(int seriesSlotNum) {
+    return this;
+  }
+
+  @Override
+  public CommonConfig setSeriesPartitionExecutorClass(String seriesPartitionExecutorClass) {
     return this;
   }
 

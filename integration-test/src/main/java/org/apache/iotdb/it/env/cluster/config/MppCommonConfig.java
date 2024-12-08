@@ -200,6 +200,12 @@ public class MppCommonConfig extends MppBaseConfig implements CommonConfig {
   }
 
   @Override
+  public CommonConfig setRegionGroupAllocatePolicy(String regionGroupAllocatePolicy) {
+    setProperty("region_group_allocate_policy", regionGroupAllocatePolicy);
+    return this;
+  }
+
+  @Override
   public CommonConfig setDataRegionGroupExtensionPolicy(String dataRegionGroupExtensionPolicy) {
     setProperty("data_region_group_extension_policy", dataRegionGroupExtensionPolicy);
     return this;
@@ -325,6 +331,12 @@ public class MppCommonConfig extends MppBaseConfig implements CommonConfig {
   }
 
   @Override
+  public CommonConfig setLeaderDistributionPolicy(String leaderDistributionPolicy) {
+    setProperty("leader_distribution_policy", leaderDistributionPolicy);
+    return this;
+  }
+
+  @Override
   public CommonConfig setQueryThreadCount(int queryThreadCount) {
     if (queryThreadCount <= 0) {
       queryThreadCount = Runtime.getRuntime().availableProcessors();
@@ -354,6 +366,12 @@ public class MppCommonConfig extends MppBaseConfig implements CommonConfig {
   @Override
   public CommonConfig setSeriesSlotNum(int seriesSlotNum) {
     setProperty("series_slot_num", String.valueOf(seriesSlotNum));
+    return this;
+  }
+
+  @Override
+  public CommonConfig setSeriesPartitionExecutorClass(String seriesPartitionExecutorClass) {
+    setProperty("series_partition_executor_class", seriesPartitionExecutorClass);
     return this;
   }
 

@@ -25,10 +25,10 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.commons.cluster.NodeStatus;
+import org.apache.iotdb.confignode.manager.load.balancer.region.AerospikeRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
-import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.AbstractLeaderBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.CostFlowSelectionLeaderBalancer;
+import org.apache.iotdb.confignode.manager.load.balancer.router.leader.AerospikeLeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.cache.node.NodeStatistics;
 
 import org.junit.BeforeClass;
@@ -62,9 +62,8 @@ public class RegionAllocatorAndLeaderBalancerCombinatorialManualTest {
   private static final Map<Integer, Double> FREE_SPACE_MAP = new TreeMap<>();
   private static final Map<Integer, NodeStatistics> DATA_NODE_STATISTICS_MAP = new TreeMap<>();
 
-  private static final IRegionGroupAllocator ALLOCATOR =
-      new PartiteGraphPlacementRegionGroupAllocator();
-  private static final AbstractLeaderBalancer BALANCER = new CostFlowSelectionLeaderBalancer();
+  private static final IRegionGroupAllocator ALLOCATOR = new AerospikeRegionGroupAllocator();
+  private static final AbstractLeaderBalancer BALANCER = new AerospikeLeaderBalancer();
 
   @BeforeClass
   public static void setUp() {

@@ -324,7 +324,8 @@ public class ConfigNodeDescriptor {
         || AbstractLeaderBalancer.CFD_POLICY.equals(leaderDistributionPolicy)
         || AbstractLeaderBalancer.RANDOM_POLICY.equals(leaderDistributionPolicy)
         || AbstractLeaderBalancer.LOGSTORE_POLICY.equals(leaderDistributionPolicy)
-        || AbstractLeaderBalancer.ESDB_POLICY.equals(leaderDistributionPolicy)) {
+        || AbstractLeaderBalancer.ESDB_POLICY.equals(leaderDistributionPolicy)
+        || AbstractLeaderBalancer.AEROSPIKE_POLICY.equals(leaderDistributionPolicy)) {
       conf.setLeaderDistributionPolicy(leaderDistributionPolicy);
     } else {
       throw new IOException(

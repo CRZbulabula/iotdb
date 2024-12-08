@@ -70,6 +70,8 @@ public interface CommonConfig {
 
   CommonConfig setDefaultSchemaRegionGroupNumPerDatabase(int schemaRegionGroupPerDatabase);
 
+  CommonConfig setRegionGroupAllocatePolicy(String regionGroupAllocatePolicy);
+
   CommonConfig setDataRegionGroupExtensionPolicy(String dataRegionGroupExtensionPolicy);
 
   CommonConfig setDefaultDataRegionGroupNumPerDatabase(int dataRegionGroupPerDatabase);
@@ -104,6 +106,8 @@ public interface CommonConfig {
   CommonConfig setEnableAutoLeaderBalanceForIoTConsensus(
       boolean enableAutoLeaderBalanceForIoTConsensus);
 
+  CommonConfig setLeaderDistributionPolicy(String leaderDistributionPolicy);
+
   CommonConfig setQueryThreadCount(int queryThreadCount);
 
   CommonConfig setWalBufferSize(int walBufferSize);
@@ -113,6 +117,8 @@ public interface CommonConfig {
   CommonConfig setDataRatisTriggerSnapshotThreshold(long threshold);
 
   CommonConfig setSeriesSlotNum(int seriesSlotNum);
+
+  CommonConfig setSeriesPartitionExecutorClass(String seriesPartitionExecutorClass);
 
   CommonConfig setSchemaMemoryAllocate(String schemaMemoryAllocate);
 
