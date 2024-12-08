@@ -21,18 +21,13 @@ package org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure;
 
 import org.apache.iotdb.common.rpc.thrift.TConsensusGroupId;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
-import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 
 import org.apache.tsfile.utils.Pair;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
-import java.util.SortedMap;
 import java.util.TreeMap;
 
 public class AlgorithmicESDBBalancer implements ILeaderBalancer {
@@ -62,8 +57,7 @@ public class AlgorithmicESDBBalancer implements ILeaderBalancer {
       Pair<String, Integer>[] replicas = new Pair[replicaSet.getDataNodeLocationsSize()];
       for (int i = 0; i < replicaSet.getDataNodeLocationsSize(); i++) {
         int dataNodeId = replicaSet.getDataNodeLocations().get(i).getDataNodeId();
-        replicas[i] =
-            new Pair<>(regionId.toString() + dataNodeId, dataNodeId);
+        replicas[i] = new Pair<>(regionId.toString() + dataNodeId, dataNodeId);
       }
       ring.init(replicas);
       // Dynamic power of 2 offset
@@ -85,7 +79,7 @@ public class AlgorithmicESDBBalancer implements ILeaderBalancer {
     }
 
     public void init(Pair<String, Integer>[] replicas) {
-//      circle = new Pair[replicas.length];
+      //      circle = new Pair[replicas.length];
       for (int i = 0; i < replicas.length; i++) {
         circle[i].left = hash64(replicas[i].getLeft());
         circle[i].right = replicas[i].getRight();
