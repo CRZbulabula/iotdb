@@ -31,6 +31,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -177,17 +178,17 @@ public class LogStoreLeaderBalancer extends AbstractLeaderBalancer {
       for (TConsensusGroupId regionGroupId : databaseEntry.getValue()) {
         if (regionGroupIntersection.contains(regionGroupId)) {
           int rVertex = rVertexMap.get(regionGroupId);
-          regionLocationMap
-              .get(regionGroupId)
-              .forEach(
-                  dataNodeId -> {
-                    if (isDataNodeAvailable(dataNodeId)
-                        && isRegionAvailable(regionGroupId, dataNodeId)) {
-                      int sDVertex = sDVertexMap.get(database).get(dataNodeId);
-                      // Capacity: 1
-                      addAdjacentEdges(rVertex, sDVertex, 1);
-                    }
-                  });
+          List<Integer> dataNodeIds = new ArrayList<>(regionLocationMap.get(regionGroupId));
+          Collections.shuffle(dataNodeIds, new Random());
+          dataNodeIds.forEach(
+              dataNodeId -> {
+                if (isDataNodeAvailable(dataNodeId)
+                    && isRegionAvailable(regionGroupId, dataNodeId)) {
+                  int sDVertex = sDVertexMap.get(database).get(dataNodeId);
+                  // Capacity: 1
+                  addAdjacentEdges(rVertex, sDVertex, 1);
+                }
+              });
         }
       }
     }

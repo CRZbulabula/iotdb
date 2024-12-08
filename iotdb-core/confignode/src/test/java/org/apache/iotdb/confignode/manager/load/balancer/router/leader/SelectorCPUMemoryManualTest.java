@@ -29,11 +29,7 @@ import org.apache.iotdb.confignode.conf.ConfigNodeConfig;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicCFDBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicESDBBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicGREEDYBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicLogStoreBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicRANDOMBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.ILeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.cache.node.NodeStatistics;
 
