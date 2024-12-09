@@ -230,8 +230,7 @@ public class SettleSelectorImpl implements ISettleSelector {
         }
         long outdatedTimeDiff = currentTime - timeIndex.getEndTime(device);
         hasExpiredTooLong =
-            hasExpiredTooLong
-                || outdatedTimeDiff > Math.min(config.getMaxExpiredTime(), 3 * deviceTTL);
+            hasExpiredTooLong || outdatedTimeDiff > Math.min(config.getMaxExpiredTime(), deviceTTL);
       }
 
       if (isDeleted) {
