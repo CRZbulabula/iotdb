@@ -234,7 +234,7 @@ public class SettleSelectorImpl implements ISettleSelector {
         }
         long outdatedTimeDiff = currentTime - timeIndex.getEndTime(device);
         hasExpiredTooLong =
-            hasExpiredTooLong || outdatedTimeDiff > Math.min(config.getMaxExpiredTime(), 3 * ttl);
+            hasExpiredTooLong || outdatedTimeDiff > Math.min(config.getMaxExpiredTime(), ttl);
       }
 
       if (isDeleted) {
