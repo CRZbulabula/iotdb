@@ -875,18 +875,18 @@ public class ProcedureManager {
   }
 
   public TSStatus migrateRegion(TMigrateRegionReq migrateRegionReq) {
-      TConsensusGroupId regionGroupId;
-      Optional<TConsensusGroupId> optional =
-          configManager
-              .getPartitionManager()
-              .generateTConsensusGroupIdByRegionId(migrateRegionReq.getRegionId());
-      if (optional.isPresent()) {
-        regionGroupId = optional.get();
-      } else {
-        LOGGER.error("get region group id fail");
-        return new TSStatus(TSStatusCode.MIGRATE_REGION_ERROR.getStatusCode())
-            .setMessage("get region group id fail");
-      }
+    TConsensusGroupId regionGroupId;
+    Optional<TConsensusGroupId> optional =
+        configManager
+            .getPartitionManager()
+            .generateTConsensusGroupIdByRegionId(migrateRegionReq.getRegionId());
+    if (optional.isPresent()) {
+      regionGroupId = optional.get();
+    } else {
+      LOGGER.error("get region group id fail");
+      return new TSStatus(TSStatusCode.MIGRATE_REGION_ERROR.getStatusCode())
+          .setMessage("get region group id fail");
+    }
 
     // find original dn and dest dn
     final TDataNodeLocation originalDataNode =
