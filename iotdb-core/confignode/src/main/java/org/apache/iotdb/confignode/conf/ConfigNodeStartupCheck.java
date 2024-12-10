@@ -152,7 +152,7 @@ public class ConfigNodeStartupCheck extends StartupChecks {
           String.valueOf(CONF.getSchemaRegionConsensusProtocolClass()),
           String.format(
               "%s or %s", ConsensusFactory.SIMPLE_CONSENSUS, ConsensusFactory.RATIS_CONSENSUS),
-          "the SchemaRegion doesn't support org.apache.iotdb.consensus.iot.FastIoTConsensus");
+          "the SchemaRegion doesn't support org.apache.iotdb.consensus.iot.IoTConsensusV2");
     }
 
     // The route priority policy is limited

@@ -56,10 +56,8 @@ ddlStatement
     | createPipe | alterPipe | dropPipe | startPipe | stopPipe | showPipes
     // Pipe Plugin
     | createPipePlugin | dropPipePlugin | showPipePlugins
-    // TOPIC
-    | createTopic | dropTopic | showTopics
     // Subscription
-    | showSubscriptions
+    | createTopic | dropTopic | showTopics | showSubscriptions
     // CQ
     | createContinuousQuery | dropContinuousQuery | showContinuousQueries
     // Cluster
@@ -645,7 +643,8 @@ showPipePlugins
     : SHOW PIPEPLUGINS
     ;
 
-// Topic =========================================================================================
+
+// Subscription =========================================================================================
 createTopic
     : CREATE TOPIC (IF NOT EXISTS)? topicName=identifier topicAttributesClause?
     ;
@@ -666,10 +665,10 @@ showTopics
     : SHOW ((TOPIC topicName=identifier) | TOPICS )
     ;
 
-// Subscriptions =========================================================================================
 showSubscriptions
     : SHOW SUBSCRIPTIONS (ON topicName=identifier)?
     ;
+
 
 // AI Model =========================================================================================
 // ---- Create Model
