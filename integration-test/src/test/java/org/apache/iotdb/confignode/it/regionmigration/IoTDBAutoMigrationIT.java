@@ -20,8 +20,8 @@
 package org.apache.iotdb.confignode.it.regionmigration;
 
 import org.apache.iotdb.commons.cluster.RegionStatus;
+import org.apache.iotdb.commons.schema.column.ColumnHeaderConstant;
 import org.apache.iotdb.consensus.ConsensusFactory;
-import org.apache.iotdb.db.queryengine.common.header.ColumnHeaderConstant;
 import org.apache.iotdb.it.env.EnvFactory;
 import org.apache.iotdb.it.framework.IoTDBTestLogger;
 import org.apache.iotdb.it.framework.IoTDBTestRunner;
@@ -82,7 +82,7 @@ public class IoTDBAutoMigrationIT {
         .setSeriesSlotNum(SERIES_NUM / 4)
         .setDataRegionPerDataNode(DATA_REGION_PER_DATA_NODE)
         .setDataReplicationFactor(REPLICATION_FACTOR)
-        .setDataRegionConsensusProtocolClass(ConsensusFactory.IOT_CONSENSUS)
+        .setDataRegionConsensusProtocolClass(ConsensusFactory.IOT_CONSENSUS_V2)
         .setSchemaRegionConsensusProtocolClass(ConsensusFactory.RATIS_CONSENSUS)
         .setConfigNodeConsensusProtocolClass(ConsensusFactory.RATIS_CONSENSUS);
     // Start a 1C2D cluster
