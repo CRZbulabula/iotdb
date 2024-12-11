@@ -20,6 +20,7 @@
 package org.apache.iotdb.commons.partition.executor;
 
 import org.apache.iotdb.common.rpc.thrift.TSeriesPartitionSlot;
+import org.apache.iotdb.commons.partition.executor.hash.RIPEMD160Executor;
 import org.apache.iotdb.commons.utils.TestOnly;
 
 import org.apache.tsfile.file.metadata.IDeviceID;
@@ -35,6 +36,7 @@ public abstract class SeriesPartitionExecutor {
   protected static SeriesPartitionExecutor EXECUTOR;
 
   protected final int seriesPartitionSlotNum;
+  private static final int RIPEMD_SERIES_SLOT_NUM = 4096;
 
   protected final int NULL_SEGMENT_HASH_NUM = (int) Character.MAX_VALUE + 1;
 
@@ -58,6 +60,10 @@ public abstract class SeriesPartitionExecutor {
   private static synchronized void initStaticSeriesPartitionExecutor(
       String executorName, int seriesPartitionSlotNum) {
     if (EXECUTOR == null) {
+      if (seriesPartitionSlotNum == RIPEMD_SERIES_SLOT_NUM) {
+        EXECUTOR = new RIPEMD160Executor(seriesPartitionSlotNum);
+        return;
+      }
       try {
         Class<?> executor = Class.forName(executorName);
         Constructor<?> executorConstructor = executor.getConstructor(int.class);
