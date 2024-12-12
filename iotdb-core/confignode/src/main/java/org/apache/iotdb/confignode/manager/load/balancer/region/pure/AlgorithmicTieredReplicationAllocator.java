@@ -28,7 +28,6 @@ import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.SplittableRandom;
@@ -40,7 +39,7 @@ public class AlgorithmicTieredReplicationAllocator implements IRegionGroupAlloca
   private int dataNodeNum;
   private int[][] COPY_SETS;
   private int[] COPY_SETS_COUNTER;
-  private BitSet[] scatterWidth;
+  private int[][] scatterWidth;
 
   private static class DataNodeEntry {
 
@@ -66,22 +65,19 @@ public class AlgorithmicTieredReplicationAllocator implements IRegionGroupAlloca
       return;
     }
     int targetScatterWidth = Math.min(loadFactor * (replicationFactor - 1), dataNodeNum - 1);
-    scatterWidth = new BitSet[dataNodeNum + 1];
-    for (int i = 1; i <= dataNodeNum; i++) {
-      scatterWidth[i] = new BitSet(dataNodeNum + 1);
-    }
+    scatterWidth = new int[dataNodeNum + 1][dataNodeNum + 1];
     COPY_SETS_COUNTER = new int[dataNodeNum + 1];
     COPY_SETS = new int[dataNodeNum + 1][targetScatterWidth + 10];
     while (existScatterWidthUnsatisfied(dataNodeNum, targetScatterWidth)) {
       for (int firstRegion = 1; firstRegion <= dataNodeNum; firstRegion++) {
-        if (scatterWidth[firstRegion].cardinality() < targetScatterWidth) {
+        if (scatterWidth[firstRegion][0] < targetScatterWidth) {
           int tail = 1;
           int[] copySet = new int[replicationFactor];
           copySet[0] = firstRegion;
           List<DataNodeEntry> otherDataNodes = new ArrayList<>();
           for (int i = 1; i <= dataNodeNum; i++) {
             if (i != firstRegion) {
-              otherDataNodes.add(new DataNodeEntry(i, scatterWidth[i].cardinality()));
+              otherDataNodes.add(new DataNodeEntry(i, scatterWidth[i][0]));
             }
           }
           otherDataNodes.sort(DataNodeEntry::compare);
@@ -89,7 +85,7 @@ public class AlgorithmicTieredReplicationAllocator implements IRegionGroupAlloca
             boolean accepted = true;
             int secondRegion = entry.getDataNodeId();
             for (int index = 0; index < tail; index++) {
-              if (scatterWidth[copySet[index]].get(secondRegion)) {
+              if (scatterWidth[copySet[index]][secondRegion] > 0) {
                 accepted = false;
                 break;
               }
@@ -120,8 +116,14 @@ public class AlgorithmicTieredReplicationAllocator implements IRegionGroupAlloca
 
           for (int i = 0; i < replicationFactor; i++) {
             for (int j = i + 1; j < replicationFactor; j++) {
-              scatterWidth[copySet[i]].set(copySet[j]);
-              scatterWidth[copySet[j]].set(copySet[i]);
+              if (scatterWidth[copySet[i]][copySet[j]] == 0) {
+                scatterWidth[copySet[i]][0]++;
+              }
+              scatterWidth[copySet[i]][copySet[j]] = 1;
+              if (scatterWidth[copySet[j]][copySet[i]] == 0) {
+                scatterWidth[copySet[j]][0]++;
+              }
+              scatterWidth[copySet[j]][copySet[i]] = 1;
             }
           }
 
@@ -142,7 +144,7 @@ public class AlgorithmicTieredReplicationAllocator implements IRegionGroupAlloca
 
   private boolean existScatterWidthUnsatisfied(int dataNodeNum, int targetScatterWidth) {
     for (int i = 1; i <= dataNodeNum; i++) {
-      if (scatterWidth[i].cardinality() < targetScatterWidth) {
+      if (scatterWidth[i][0] < targetScatterWidth) {
         return true;
       }
     }

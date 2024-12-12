@@ -24,17 +24,15 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
-import java.util.stream.Collectors;
 
 /** Allocate Region Greedily */
 public class RoundRobinRegionGroupAllocator implements IRegionGroupAllocator {
 
-  public static final Random RANDOM = new Random();
+  private int[] regionCounter;
+  private DataNodeEntry[] entryList;
 
   public RoundRobinRegionGroupAllocator() {
     // Empty constructor
@@ -44,24 +42,18 @@ public class RoundRobinRegionGroupAllocator implements IRegionGroupAllocator {
 
     public int dataNodeId;
     public int regionCount;
-    public double freeDiskSpace;
-    public int randomWeight;
 
-    public DataNodeEntry(int dataNodeId, int regionCount, double freeDiskSpace) {
+    public DataNodeEntry(int dataNodeId, int regionCount) {
       this.dataNodeId = dataNodeId;
       this.regionCount = regionCount;
-      this.freeDiskSpace = freeDiskSpace;
-      this.randomWeight = RANDOM.nextInt();
     }
 
     @Override
     public int compareTo(DataNodeEntry other) {
       if (this.regionCount != other.regionCount) {
         return this.regionCount - other.regionCount;
-      } else if (this.freeDiskSpace != other.freeDiskSpace) {
-        return (int) (other.freeDiskSpace - this.freeDiskSpace);
       } else {
-        return this.randomWeight - other.randomWeight;
+        return this.dataNodeId - other.dataNodeId;
       }
     }
   }
@@ -74,43 +66,28 @@ public class RoundRobinRegionGroupAllocator implements IRegionGroupAllocator {
       List<TRegionReplicaSet> databaseAllocatedRegionGroups,
       int replicationFactor,
       TConsensusGroupId consensusGroupId) {
-    // Build weightList order by number of regions allocated asc
-    List<TDataNodeLocation> weightList =
-        buildWeightList(availableDataNodeMap, freeDiskSpaceMap, allocatedRegionGroups);
-    return new TRegionReplicaSet(
-        consensusGroupId,
-        weightList.stream().limit(replicationFactor).collect(Collectors.toList()));
-  }
-
-  private List<TDataNodeLocation> buildWeightList(
-      Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
-      Map<Integer, Double> freeDiskSpaceMap,
-      List<TRegionReplicaSet> allocatedRegionGroups) {
-
-    // Map<DataNodeId, Region count>
-    Map<Integer, Integer> regionCounter = new HashMap<>(availableDataNodeMap.size());
-    allocatedRegionGroups.forEach(
-        regionReplicaSet ->
-            regionReplicaSet
-                .getDataNodeLocations()
-                .forEach(
-                    dataNodeLocation ->
-                        regionCounter.merge(dataNodeLocation.getDataNodeId(), 1, Integer::sum)));
-
-    /* Construct priority map */
-    List<DataNodeEntry> entryList = new ArrayList<>();
-    availableDataNodeMap.forEach(
-        (datanodeId, dataNodeConfiguration) ->
-            entryList.add(
-                new DataNodeEntry(
-                    datanodeId,
-                    regionCounter.getOrDefault(datanodeId, 0),
-                    freeDiskSpaceMap.getOrDefault(datanodeId, 0d))));
-
-    // Sort weightList
-    return entryList.stream()
-        .sorted()
-        .map(entry -> availableDataNodeMap.get(entry.dataNodeId).getLocation())
-        .collect(Collectors.toList());
+    // Construct DataNode priority list
+    int maxDataNodeId = availableDataNodeMap.keySet().stream().max(Integer::compareTo).orElse(0);
+    regionCounter = new int[maxDataNodeId + 1];
+    for (TRegionReplicaSet regionReplicaSet : allocatedRegionGroups) {
+      for (TDataNodeLocation dataNodeLocation : regionReplicaSet.getDataNodeLocations()) {
+        regionCounter[dataNodeLocation.getDataNodeId()]++;
+      }
+    }
+    int cnt = 0;
+    entryList = new DataNodeEntry[availableDataNodeMap.size()];
+    for (TDataNodeConfiguration dataNodeConfiguration : availableDataNodeMap.values()) {
+      int dataNodeId = dataNodeConfiguration.getLocation().getDataNodeId();
+      entryList[cnt++] = new DataNodeEntry(dataNodeId, regionCounter[dataNodeId]);
+    }
+    Arrays.sort(entryList);
+    // Collect result
+    TRegionReplicaSet result = new TRegionReplicaSet();
+    result.setRegionId(consensusGroupId);
+    for (int i = 0; i < replicationFactor; i++) {
+      result.addToDataNodeLocations(
+          availableDataNodeMap.get(entryList[i].dataNodeId).getLocation());
+    }
+    return result;
   }
 }

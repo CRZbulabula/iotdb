@@ -30,18 +30,15 @@ import java.util.TreeMap;
 
 public class AlgorithmicGREEDYBalancer implements ILeaderBalancer {
 
+  private int[] leaderCounter;
+  private Map<TConsensusGroupId, Integer> result;
+
   @Override
   public Map<TConsensusGroupId, Integer> generateOptimalLeaderDistribution(
       Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
       List<TRegionReplicaSet> allocatedRegionGroups) {
-    return constructGreedyDistribution(availableDataNodeMap, allocatedRegionGroups);
-  }
-
-  private Map<TConsensusGroupId, Integer> constructGreedyDistribution(
-      Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
-      List<TRegionReplicaSet> allocatedRegionGroups) {
-    Map<TConsensusGroupId, Integer> result = new TreeMap<>();
-    int[] leaderCounter = new int[availableDataNodeMap.size() + 1];
+    result = new TreeMap<>();
+    leaderCounter = new int[availableDataNodeMap.size() + 1];
     for (TRegionReplicaSet replicaSet : allocatedRegionGroups) {
       int minCount = Integer.MAX_VALUE, leaderId = -1;
       for (TDataNodeLocation dataNodeLocation : replicaSet.getDataNodeLocations()) {

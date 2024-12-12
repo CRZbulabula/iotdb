@@ -23,18 +23,14 @@ import org.apache.iotdb.common.rpc.thrift.TSeriesPartitionSlot;
 import org.apache.iotdb.commons.partition.executor.SeriesPartitionExecutor;
 
 import org.apache.tsfile.file.metadata.IDeviceID;
-import org.bouncycastle.jcajce.provider.digest.RIPEMD160;
 
 import java.math.BigInteger;
-import java.security.MessageDigest;
 
 import static org.apache.iotdb.commons.conf.IoTDBConstant.PATH_SEPARATOR;
+import static org.apache.iotdb.commons.partition.executor.hash.Ripemd160.getHash;
 
 /** Refer from "Techniques and Efficiencies from Building a Real-Time DBMS" */
 public class RIPEMD160Executor extends SeriesPartitionExecutor {
-
-  // Create a MessageDigest instance for RIPEMD-160
-  private static final MessageDigest DIGEST = new RIPEMD160.Digest();
 
   public RIPEMD160Executor(int seriesPartitionSlotNum) {
     // To utilize this executor, configuring the seriesPartitionSlotNum to 4096.
@@ -43,7 +39,7 @@ public class RIPEMD160Executor extends SeriesPartitionExecutor {
 
   @Override
   public TSeriesPartitionSlot getSeriesPartitionSlot(String device) {
-    byte[] hashBytes = DIGEST.digest(device.getBytes());
+    byte[] hashBytes = getHash(device.getBytes());
     BigInteger hashValue = new BigInteger(1, hashBytes);
     return new TSeriesPartitionSlot(
         hashValue.mod(BigInteger.valueOf(seriesPartitionSlotNum)).intValue());
@@ -64,7 +60,7 @@ public class RIPEMD160Executor extends SeriesPartitionExecutor {
         builder.append(PATH_SEPARATOR);
       }
     }
-    byte[] hashBytes = DIGEST.digest(builder.toString().getBytes());
+    byte[] hashBytes = getHash(builder.toString().getBytes());
     BigInteger hashValue = new BigInteger(1, hashBytes);
     return new TSeriesPartitionSlot(
         hashValue.mod(BigInteger.valueOf(seriesPartitionSlotNum)).intValue());

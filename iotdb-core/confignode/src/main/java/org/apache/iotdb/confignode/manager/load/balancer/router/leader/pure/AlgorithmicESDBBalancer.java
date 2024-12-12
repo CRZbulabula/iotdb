@@ -44,14 +44,17 @@ public class AlgorithmicESDBBalancer implements ILeaderBalancer {
 
   public static final int DEFAULT_SEED = 104729;
 
-  private final HashRing ring = new HashRing();
+  private HashRing[] ring;
+  private Map<TConsensusGroupId, Integer> result;
 
   @Override
   public Map<TConsensusGroupId, Integer> generateOptimalLeaderDistribution(
       Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
       List<TRegionReplicaSet> allocatedRegionGroups) {
+    int cnt = 0;
     long currentTime = System.nanoTime();
-    Map<TConsensusGroupId, Integer> result = new TreeMap<>();
+    ring = new HashRing[allocatedRegionGroups.size()];
+    result = new TreeMap<>();
     for (TRegionReplicaSet replicaSet : allocatedRegionGroups) {
       TConsensusGroupId regionId = replicaSet.getRegionId();
       Pair<String, Integer>[] replicas = new Pair[replicaSet.getDataNodeLocationsSize()];
@@ -59,10 +62,11 @@ public class AlgorithmicESDBBalancer implements ILeaderBalancer {
         int dataNodeId = replicaSet.getDataNodeLocations().get(i).getDataNodeId();
         replicas[i] = new Pair<>(regionId.toString() + dataNodeId, dataNodeId);
       }
-      ring.init(replicas);
+      ring[cnt] = new HashRing();
+      ring[cnt].init(replicas);
       // Dynamic power of 2 offset
       int offset = (int) Math.pow(2, Math.floor(RANDOM.nextDouble() * 32.0));
-      int newLeader = ring.get(new Pair<>(regionId.toString(), offset), currentTime);
+      int newLeader = ring[cnt].get(new Pair<>(regionId.toString(), offset), currentTime);
       result.put(regionId, newLeader);
     }
     return result;

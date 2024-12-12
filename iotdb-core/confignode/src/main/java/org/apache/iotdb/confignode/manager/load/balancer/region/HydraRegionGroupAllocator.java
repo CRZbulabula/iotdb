@@ -21,12 +21,12 @@ package org.apache.iotdb.confignode.manager.load.balancer.region;
 
 import org.apache.iotdb.common.rpc.thrift.TConsensusGroupId;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
+import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.stream.Collectors;
 
 /**
  * Refer from "Hydra: Resilient and Highly Available Remote Memory", git:
@@ -36,6 +36,10 @@ public class HydraRegionGroupAllocator implements IRegionGroupAllocator {
 
   private static final Random random = new Random();
 
+  TDataNodeLocation[] dataNodeList;
+  int[] selection;
+  int[] randomSelection;
+
   @Override
   public TRegionReplicaSet generateOptimalRegionReplicasDistribution(
       Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
@@ -44,16 +48,15 @@ public class HydraRegionGroupAllocator implements IRegionGroupAllocator {
       List<TRegionReplicaSet> databaseAllocatedRegionGroups,
       int replicationFactor,
       TConsensusGroupId consensusGroupId) {
-    List<TDataNodeConfiguration> dataNodeList =
-        availableDataNodeMap.entrySet().stream()
-            .sorted(Map.Entry.comparingByKey())
-            .map(Map.Entry::getValue)
-            .collect(Collectors.toList());
+    int i = 0, j;
+    int avail_node = availableDataNodeMap.size();
+    dataNodeList = new TDataNodeLocation[avail_node];
+    for (TDataNodeConfiguration dataNodeConfiguration : availableDataNodeMap.values()) {
+      dataNodeList[i++] = dataNodeConfiguration.getLocation();
+    }
 
-    int i, j;
-    int avail_node = dataNodeList.size();
-    int[] selection = new int[replicationFactor];
-    int[] randomSelection = new int[avail_node];
+    selection = new int[replicationFactor];
+    randomSelection = new int[avail_node];
     for (j = 0; j < replicationFactor; j++) {
       selection[j] = -1; // Not selected yet
     }
@@ -80,7 +83,7 @@ public class HydraRegionGroupAllocator implements IRegionGroupAllocator {
     TRegionReplicaSet result = new TRegionReplicaSet();
     result.setRegionId(consensusGroupId);
     for (j = 0; j < replicationFactor; j++) {
-      result.addToDataNodeLocations(dataNodeList.get(selection[j]).getLocation());
+      result.addToDataNodeLocations(dataNodeList[selection[j]]);
     }
     return result;
   }

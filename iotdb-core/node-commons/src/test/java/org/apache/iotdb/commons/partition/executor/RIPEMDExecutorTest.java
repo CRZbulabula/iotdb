@@ -22,6 +22,7 @@ package org.apache.iotdb.commons.partition.executor;
 import org.apache.iotdb.commons.partition.executor.hash.RIPEMD160Executor;
 
 import org.apache.tsfile.file.metadata.IDeviceID;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.logging.Logger;
@@ -42,8 +43,11 @@ public class RIPEMDExecutorTest {
     for (int suffix = 0; suffix < 1000_000; suffix++) {
       String device = PATH_PREFIX + suffix;
       IDeviceID deviceID = IDeviceID.Factory.DEFAULT_FACTORY.create(PATH_PREFIX + suffix);
-      deviceBucket[RIPEMD160_EXECUTOR.getSeriesPartitionSlot(device).getSlotId()]++;
-      deviceIdBucket[RIPEMD160_EXECUTOR.getSeriesPartitionSlot(deviceID).getSlotId()]++;
+      int deviceSlot = RIPEMD160_EXECUTOR.getSeriesPartitionSlot(device).getSlotId();
+      int deviceIdSlot = RIPEMD160_EXECUTOR.getSeriesPartitionSlot(deviceID).getSlotId();
+      Assert.assertEquals(deviceSlot, deviceIdSlot);
+      deviceBucket[deviceSlot]++;
+      deviceIdBucket[deviceIdSlot]++;
     }
     // Calculate std
     double deviceVariance = calculateVariance(deviceBucket);

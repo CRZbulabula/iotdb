@@ -29,7 +29,7 @@ import org.apache.iotdb.confignode.conf.ConfigNodeConfig;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicESDBBalancer;
+import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicAerospikeLeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.ILeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.cache.node.NodeStatistics;
 
@@ -53,7 +53,7 @@ public class SelectorCPUMemoryManualTest {
   private static final ThreadMXBean THREAD_MX_BEAN = ManagementFactory.getThreadMXBean();
 
   private static final ConfigNodeConfig CONF = ConfigNodeDescriptor.getInstance().getConf();
-  private static final int TEST_LOOP = 100;
+  private static final int TEST_LOOP = 10;
   private static final int MIN_DATA_NODE_NUM = 1;
   private static final int MAX_DATA_NODE_NUM = 1000;
   private static final int MIN_DATA_REGION_PER_DATA_NODE = 10;
@@ -104,9 +104,9 @@ public class SelectorCPUMemoryManualTest {
     }
 
     FileWriter cpuW =
-        new FileWriter("/Users/yongzaodan/Desktop/simulation/resource/selection/ESDB-cpu.log");
+        new FileWriter("/Users/yongzaodan/Desktop/simulation/resource/selection/AEROSPIKE-cpu.log");
     FileWriter memW =
-        new FileWriter("/Users/yongzaodan/Desktop/simulation/resource/selection/ESDB-mem.log");
+        new FileWriter("/Users/yongzaodan/Desktop/simulation/resource/selection/AEROSPIKE-mem.log");
     for (DataEntry entry : testResult) {
       cpuW.write(entry.avgCPUTimeInMS + "\n");
       cpuW.flush();
@@ -154,7 +154,7 @@ public class SelectorCPUMemoryManualTest {
     long startTime = THREAD_MX_BEAN.getThreadCpuTime(threadID), totalTime = 0;
     for (int loop = 1; loop <= TEST_LOOP; loop++) {
       startTime = THREAD_MX_BEAN.getThreadCpuTime(threadID);
-      ILeaderBalancer BALANCER = new AlgorithmicESDBBalancer();
+      ILeaderBalancer BALANCER = new AlgorithmicAerospikeLeaderBalancer();
       BALANCER.generateOptimalLeaderDistribution(AVAILABLE_DATA_NODE_MAP, allocateResult);
       totalTime += THREAD_MX_BEAN.getThreadCpuTime(threadID) - startTime;
       currentMemoryInMB = (double) RamUsageEstimator.sizeOf(BALANCER) / 1024.0 / 1024.0;

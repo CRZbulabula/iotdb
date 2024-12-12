@@ -24,7 +24,6 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
@@ -55,12 +54,14 @@ public class AlgorithmicCFDBalancer implements ILeaderBalancer {
   // Maximum index of graph edges
   private int maxEdge = 0;
 
-  private final List<MinCostFlowEdge> minCostFlowEdges;
+  private MinCostFlowEdge[] minCostFlowEdges;
   private int[] nodeHeadEdge;
   private int[] nodeCurrentEdge;
 
   private boolean[] isNodeVisited;
   private int[] nodeMinimumCost;
+
+  private Map<TConsensusGroupId, Integer> result;
 
   private int maximumFlow = 0;
   private int minimumCost = 0;
@@ -69,7 +70,6 @@ public class AlgorithmicCFDBalancer implements ILeaderBalancer {
     this.rNodeMap = new TreeMap<>();
     this.dNodeMap = new TreeMap<>();
     this.dNodeReflect = new TreeMap<>();
-    this.minCostFlowEdges = new ArrayList<>();
   }
 
   @Override
@@ -84,8 +84,13 @@ public class AlgorithmicCFDBalancer implements ILeaderBalancer {
   private void constructMCFGraph(
       Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
       List<TRegionReplicaSet> allocatedRegionGroups) {
+    int replicationFactor = allocatedRegionGroups.get(0).getDataNodeLocationsSize();
     this.maximumFlow = 0;
     this.minimumCost = 0;
+    this.minCostFlowEdges =
+        new MinCostFlowEdge
+            [availableDataNodeMap.size() * 20
+                + allocatedRegionGroups.size() * (replicationFactor + 1) * 2];
     /* Indicate nodes in mcf */
     for (TRegionReplicaSet replicaSet : allocatedRegionGroups) {
       rNodeMap.put(replicaSet.getRegionId(), maxNode++);
@@ -146,7 +151,7 @@ public class AlgorithmicCFDBalancer implements ILeaderBalancer {
 
   private void addEdge(int fromNode, int destNode, int capacity, int cost) {
     MinCostFlowEdge edge = new MinCostFlowEdge(destNode, capacity, cost, nodeHeadEdge[fromNode]);
-    minCostFlowEdges.add(edge);
+    minCostFlowEdges[maxEdge] = edge;
     nodeHeadEdge[fromNode] = maxEdge++;
   }
 
@@ -171,8 +176,8 @@ public class AlgorithmicCFDBalancer implements ILeaderBalancer {
       isNodeVisited[currentNode] = false;
       for (int currentEdge = nodeHeadEdge[currentNode];
           currentEdge >= 0;
-          currentEdge = minCostFlowEdges.get(currentEdge).nextEdge) {
-        MinCostFlowEdge edge = minCostFlowEdges.get(currentEdge);
+          currentEdge = minCostFlowEdges[currentEdge].nextEdge) {
+        MinCostFlowEdge edge = minCostFlowEdges[currentEdge];
         if (edge.capacity > 0
             && nodeMinimumCost[currentNode] + edge.cost < nodeMinimumCost[edge.destNode]) {
           nodeMinimumCost[edge.destNode] = nodeMinimumCost[currentNode] + edge.cost;
@@ -198,8 +203,8 @@ public class AlgorithmicCFDBalancer implements ILeaderBalancer {
     isNodeVisited[currentNode] = true;
     for (currentEdge = nodeCurrentEdge[currentNode];
         currentEdge >= 0;
-        currentEdge = minCostFlowEdges.get(currentEdge).nextEdge) {
-      MinCostFlowEdge edge = minCostFlowEdges.get(currentEdge);
+        currentEdge = minCostFlowEdges[currentEdge].nextEdge) {
+      MinCostFlowEdge edge = minCostFlowEdges[currentEdge];
       if (nodeMinimumCost[currentNode] + edge.cost == nodeMinimumCost[edge.destNode]
           && edge.capacity > 0
           && !isNodeVisited[edge.destNode]) {
@@ -209,7 +214,7 @@ public class AlgorithmicCFDBalancer implements ILeaderBalancer {
         minimumCost += subOutputFlow * edge.cost;
 
         edge.capacity -= subOutputFlow;
-        minCostFlowEdges.get(currentEdge ^ 1).capacity += subOutputFlow;
+        minCostFlowEdges[currentEdge ^ 1].capacity += subOutputFlow;
 
         inputFlow -= subOutputFlow;
         outputFlow += subOutputFlow;
@@ -242,13 +247,13 @@ public class AlgorithmicCFDBalancer implements ILeaderBalancer {
    */
   private Map<TConsensusGroupId, Integer> collectLeaderDistribution(
       List<TRegionReplicaSet> allocatedRegionGroups) {
-    Map<TConsensusGroupId, Integer> result = new TreeMap<>();
+    result = new TreeMap<>();
     for (TRegionReplicaSet replicaSet : allocatedRegionGroups) {
       TConsensusGroupId regionGroupId = replicaSet.getRegionId();
       for (int currentEdge = nodeHeadEdge[rNodeMap.get(regionGroupId)];
           currentEdge >= 0;
-          currentEdge = minCostFlowEdges.get(currentEdge).nextEdge) {
-        MinCostFlowEdge edge = minCostFlowEdges.get(currentEdge);
+          currentEdge = minCostFlowEdges[currentEdge].nextEdge) {
+        MinCostFlowEdge edge = minCostFlowEdges[currentEdge];
         if (edge.destNode != S_NODE && edge.capacity == 0) {
           result.put(regionGroupId, dNodeReflect.get(edge.destNode));
         }

@@ -78,12 +78,12 @@ public class AllocatorCPUMemoryManualTest {
     List<DataEntry> testResult = new ArrayList<>();
     THREAD_MX_BEAN.setThreadCpuTimeEnabled(true);
     // Warm up
-    for (int dataNodeNum = 1; dataNodeNum <= 100; dataNodeNum++) {
+    for (int dataNodeNum = 1; dataNodeNum <= 300; dataNodeNum++) {
       for (int dataRegionPerDataNode = MIN_DATA_REGION_PER_DATA_NODE;
           dataRegionPerDataNode <= MAX_DATA_REGION_PER_DATA_NODE;
           dataRegionPerDataNode++) {
         CONF.setDataRegionPerDataNode(dataRegionPerDataNode);
-        singleTest(dataNodeNum, dataRegionPerDataNode);
+        singleTest(dataNodeNum, dataRegionPerDataNode, false);
       }
     }
     // Real test
@@ -92,16 +92,16 @@ public class AllocatorCPUMemoryManualTest {
           dataRegionPerDataNode <= MAX_DATA_REGION_PER_DATA_NODE;
           dataRegionPerDataNode++) {
         CONF.setDataRegionPerDataNode(dataRegionPerDataNode);
-        testResult.add(singleTest(dataNodeNum, dataRegionPerDataNode));
+        testResult.add(singleTest(dataNodeNum, dataRegionPerDataNode, true));
       }
     }
 
     FileWriter cpuW =
         new FileWriter(
-            "/Users/yongzaodan/Desktop/simulation/resource/logs/TIERED_REPLICATION-cpu.log");
+            "/Users/yongzaodan/Desktop/simulation/resource/placement/ROUND_ROBIN-cpu.log");
     FileWriter memW =
         new FileWriter(
-            "/Users/yongzaodan/Desktop/simulation/resource/logs/TIERED_REPLICATION-mem.log");
+            "/Users/yongzaodan/Desktop/simulation/resource/placement/ROUND_ROBIN-mem.log");
     for (DataEntry entry : testResult) {
       cpuW.write(entry.avgCPUTimeInMS + "\n");
       cpuW.flush();
@@ -112,7 +112,7 @@ public class AllocatorCPUMemoryManualTest {
     memW.close();
   }
 
-  private DataEntry singleTest(int N, int W) {
+  private DataEntry singleTest(int N, int W, boolean needLog) {
     if (N < DATA_REPLICATION_FACTOR) {
       return new DataEntry(N, 0.0, 0.0);
     }
@@ -150,7 +150,9 @@ public class AllocatorCPUMemoryManualTest {
         (double) (THREAD_MX_BEAN.getThreadCpuTime(threadID) - startTime)
             / (double) (TEST_LOOP * dataRegionGroupNum)
             / 1000000.0;
-    LOGGER.info("Test N={}, memory={}MB, cpuTime={}MS", N, maxMemoryInMB, cpuTimePerRegionInMS);
+    if (needLog) {
+      LOGGER.info("Test N={}, memory={}MB, cpuTime={}MS", N, maxMemoryInMB, cpuTimePerRegionInMS);
+    }
     return new DataEntry(N, maxMemoryInMB, cpuTimePerRegionInMS);
   }
 }

@@ -76,7 +76,7 @@ public class PartiteGraphPlacementRegionGroupAllocator implements IRegionGroupAl
 
     // Select alpha nodes set
     for (int i = 0; i < subGraphCount; i++) {
-      subGraphSearch(i, freeDiskSpaceMap);
+      subGraphSearch(i);
     }
     if (bestValue.left == Integer.MAX_VALUE) {
       // Use greedy allocator as alternative if no alpha nodes set is found
@@ -175,14 +175,12 @@ public class PartiteGraphPlacementRegionGroupAllocator implements IRegionGroupAl
     return new Pair<>(edgeSum, regionSum);
   }
 
-  private void subGraphSearch(int firstIndex, Map<Integer, Double> freeDiskSpaceMap) {
+  private void subGraphSearch(int firstIndex) {
     List<DataNodeEntry> entryList = new ArrayList<>();
     for (int index = firstIndex; index < dataNodeNum; index += subGraphCount) {
       // Prune: skip filled DataNodes
       if (regionCounter[index] < regionPerDataNode) {
-        entryList.add(
-            new DataNodeEntry(
-                index, regionCounter[index], freeDiskSpaceMap.get(fakeToRealIdMap.get(index))));
+        entryList.add(new DataNodeEntry(index, regionCounter[index]));
       }
     }
     if (entryList.size() < alphaDataNodeNum) {

@@ -72,7 +72,7 @@ public class ConfigNodeConfig {
   private int dataReplicationFactor = 1;
 
   /** Number of SeriesPartitionSlots per Database. */
-  private int seriesSlotNum = 1000;
+  private int seriesSlotNum = 4096;
 
   /** SeriesPartitionSlot executor class. */
   private String seriesPartitionExecutorClass =

@@ -39,7 +39,7 @@ public class AlgorithmicCopySetAllocator implements IRegionGroupAllocator {
   private static final SplittableRandom RANDOM = new SplittableRandom();
 
   private int dataNodeNum;
-  //  private int[] REGION_COUNTER;
+  private int[] REGION_COUNTER;
   //  private int[] COPY_SETS_COUNTER;
   //  private CopySet[][] COPY_SETS;
 
@@ -112,7 +112,7 @@ public class AlgorithmicCopySetAllocator implements IRegionGroupAllocator {
       init(dataNodeNumber, replicationFactor, regionPerDataNode);
     }
 
-    int[] REGION_COUNTER = new int[dataNodeNumber + 1];
+    REGION_COUNTER = new int[dataNodeNumber + 1];
     for (TRegionReplicaSet regionGroup : allocatedRegionGroups) {
       List<TDataNodeLocation> dataNodeLocations = regionGroup.getDataNodeLocations();
       for (TDataNodeLocation dataNodeLocation : dataNodeLocations) {

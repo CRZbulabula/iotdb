@@ -26,6 +26,7 @@ import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.tsfile.utils.Pair;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +39,8 @@ public class AerospikeRegionGroupAllocator implements IRegionGroupAllocator {
   private static final long OFFSET_BASIS = 0xcbf29ce484222325L;
   private static final long PRIME = 0x100000001b3L;
 
+  Pair<Long, Integer>[] nodeHashList;
+
   @Override
   public TRegionReplicaSet generateOptimalRegionReplicasDistribution(
       Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
@@ -46,25 +49,31 @@ public class AerospikeRegionGroupAllocator implements IRegionGroupAllocator {
       List<TRegionReplicaSet> databaseAllocatedRegionGroups,
       int replicationFactor,
       TConsensusGroupId consensusGroupId) {
-    List<Integer> replicationList =
-        generateReplicationList(
-            consensusGroupId.getId(), new ArrayList<>(availableDataNodeMap.keySet()));
+    int regionId = consensusGroupId.getId();
+    int dataNodeNum = availableDataNodeMap.size();
+    int cnt = 0;
+    nodeHashList = new Pair[dataNodeNum];
+    for (int dataNodeId : availableDataNodeMap.keySet()) {
+      long hash = nodeHashCompute(dataNodeId, regionId);
+      nodeHashList[cnt++] = new Pair<>(hash, dataNodeId);
+    }
+    Arrays.sort(nodeHashList, Comparator.comparingLong(pair -> pair.left));
     TRegionReplicaSet result = new TRegionReplicaSet();
     result.setRegionId(consensusGroupId);
     for (int i = 0; i < replicationFactor; i++) {
-      result.addToDataNodeLocations(availableDataNodeMap.get(replicationList.get(i)).getLocation());
+      result.addToDataNodeLocations(availableDataNodeMap.get(nodeHashList[i].right).getLocation());
     }
     return result;
   }
 
-  public static List<Integer> generateReplicationList(int regionId, List<Integer> dataNodeIdList) {
+  public static List<Integer> generateReplicationList(int regionId, List<Integer> dataNodeList) {
     List<Pair<Long, Integer>> nodeHashList = new ArrayList<>();
-    for (int dataNodeId : dataNodeIdList) {
+    for (int dataNodeId : dataNodeList) {
       long hash = nodeHashCompute(dataNodeId, regionId);
       nodeHashList.add(new Pair<>(hash, dataNodeId));
     }
-    nodeHashList.sort(Comparator.comparingLong(o -> o.left));
-    return nodeHashList.stream().map(Pair::getRight).collect(Collectors.toList());
+    nodeHashList.sort(Comparator.comparingLong(pair -> pair.left));
+    return nodeHashList.stream().map(pair -> pair.right).collect(Collectors.toList());
   }
 
   private static long nodeHashCompute(int nodeId, int regionId) {

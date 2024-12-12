@@ -23,29 +23,39 @@ import org.apache.iotdb.common.rpc.thrift.TConsensusGroupId;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
-public class AlgorithmicRANDOMBalancer implements ILeaderBalancer {
+import static org.apache.iotdb.confignode.manager.load.balancer.region.AerospikeRegionGroupAllocator.generateReplicationList;
 
+public class AlgorithmicAerospikeLeaderBalancer implements ILeaderBalancer {
+
+  private int[][] dataNodeIds;
   private Map<TConsensusGroupId, Integer> result;
 
   @Override
   public Map<TConsensusGroupId, Integer> generateOptimalLeaderDistribution(
       Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
       List<TRegionReplicaSet> allocatedRegionGroups) {
+    int cnt = 0;
     result = new TreeMap<>();
-    Random random = new Random();
+    dataNodeIds =
+        new int[allocatedRegionGroups.size()]
+            [allocatedRegionGroups.get(0).getDataNodeLocationsSize()];
     for (TRegionReplicaSet replicaSet : allocatedRegionGroups) {
-      result.put(
-          replicaSet.getRegionId(),
-          replicaSet
-              .getDataNodeLocations()
-              .get(random.nextInt(replicaSet.getDataNodeLocationsSize()))
-              .getDataNodeId());
+      for (int i = 0; i < replicaSet.getDataNodeLocationsSize(); i++) {
+        dataNodeIds[cnt][i] = replicaSet.getDataNodeLocations().get(i).getDataNodeId();
+      }
+      List<Integer> replicationList =
+          generateReplicationList(
+              replicaSet.getRegionId().getId(),
+              Arrays.stream(dataNodeIds[cnt]).boxed().collect(Collectors.toList()));
+      result.put(replicaSet.getRegionId(), replicationList.get(0));
+      cnt += 1;
     }
-    return result;
+    return null;
   }
 }

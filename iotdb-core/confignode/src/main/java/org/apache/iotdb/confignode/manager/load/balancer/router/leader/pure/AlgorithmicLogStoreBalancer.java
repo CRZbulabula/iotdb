@@ -24,7 +24,6 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeConfiguration;
 import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
@@ -57,7 +56,7 @@ public class AlgorithmicLogStoreBalancer implements ILeaderBalancer {
   // Maximum index of graph edges
   private int maxEdge = 0;
 
-  private final List<MaxFlowEdge> maxFlowEdges;
+  private MaxFlowEdge[] maxFlowEdges;
   private int[] vertexHeadEdge;
   private int[] vertexCurrentEdge;
   private int[] vertexLevel;
@@ -67,11 +66,12 @@ public class AlgorithmicLogStoreBalancer implements ILeaderBalancer {
   private int maximumFlow = 0;
   private int maxCapacity = 0;
 
+  private Map<TConsensusGroupId, Integer> result;
+
   public AlgorithmicLogStoreBalancer() {
     this.rNodeMap = new TreeMap<>();
     this.dNodeMap = new TreeMap<>();
     this.dNodeReflect = new TreeMap<>();
-    this.maxFlowEdges = new ArrayList<>();
   }
 
   @Override
@@ -87,6 +87,11 @@ public class AlgorithmicLogStoreBalancer implements ILeaderBalancer {
       Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
       List<TRegionReplicaSet> allocatedRegionGroups) {
     this.maximumFlow = 0;
+    int replicationFactor = allocatedRegionGroups.get(0).getDataNodeLocationsSize();
+    maxFlowEdges =
+        new MaxFlowEdge
+            [availableDataNodeMap.size() * 20
+                + allocatedRegionGroups.size() * (replicationFactor + 1) * 2];
 
     /* Indicate nodes in mcf */
     for (TRegionReplicaSet replicaSet : allocatedRegionGroups) {
@@ -144,7 +149,7 @@ public class AlgorithmicLogStoreBalancer implements ILeaderBalancer {
 
   private void addEdge(int fromVertex, int destVertex, int capacity) {
     MaxFlowEdge edge = new MaxFlowEdge(destVertex, capacity, vertexHeadEdge[fromVertex]);
-    maxFlowEdges.add(edge);
+    maxFlowEdges[maxEdge] = edge;
     vertexHeadEdge[fromVertex] = maxEdge++;
   }
 
@@ -159,8 +164,8 @@ public class AlgorithmicLogStoreBalancer implements ILeaderBalancer {
       int vertex = queue.poll();
       for (int edgeIndex = vertexHeadEdge[vertex];
           edgeIndex != -1;
-          edgeIndex = maxFlowEdges.get(edgeIndex).nextEdge) {
-        MaxFlowEdge edge = maxFlowEdges.get(edgeIndex);
+          edgeIndex = maxFlowEdges[edgeIndex].nextEdge) {
+        MaxFlowEdge edge = maxFlowEdges[edgeIndex];
         if (!isVertexVisited[edge.destVertex] && edge.capacity > 0) {
           vertexLevel[edge.destVertex] = vertexLevel[vertex] + 1;
           isVertexVisited[edge.destVertex] = true;
@@ -179,13 +184,13 @@ public class AlgorithmicLogStoreBalancer implements ILeaderBalancer {
     int totalFlow = 0;
     for (edgeIndex = vertexCurrentEdge[vertex];
         edgeIndex != -1;
-        edgeIndex = maxFlowEdges.get(edgeIndex).nextEdge) {
-      MaxFlowEdge edge = maxFlowEdges.get(edgeIndex);
+        edgeIndex = maxFlowEdges[edgeIndex].nextEdge) {
+      MaxFlowEdge edge = maxFlowEdges[edgeIndex];
       if (edge.capacity > 0 && vertexLevel[edge.destVertex] == vertexLevel[vertex] + 1) {
         int currentFlow = dfs(edge.destVertex, Math.min(inputFlow, edge.capacity));
         if (currentFlow > 0) {
           edge.capacity -= currentFlow;
-          maxFlowEdges.get(edgeIndex ^ 1).capacity += currentFlow;
+          maxFlowEdges[edgeIndex ^ 1].capacity += currentFlow;
           totalFlow += currentFlow;
           inputFlow -= currentFlow;
           if (inputFlow == 0) {
@@ -210,13 +215,13 @@ public class AlgorithmicLogStoreBalancer implements ILeaderBalancer {
    */
   private Map<TConsensusGroupId, Integer> collectLeaderDistribution(
       List<TRegionReplicaSet> allocatedRegionGroups) {
-    Map<TConsensusGroupId, Integer> result = new TreeMap<>();
+    result = new TreeMap<>();
     for (TRegionReplicaSet replicaSet : allocatedRegionGroups) {
       TConsensusGroupId regionGroupId = replicaSet.getRegionId();
       for (int currentEdge = vertexHeadEdge[rNodeMap.get(regionGroupId)];
           currentEdge >= 0;
-          currentEdge = maxFlowEdges.get(currentEdge).nextEdge) {
-        MaxFlowEdge edge = maxFlowEdges.get(currentEdge);
+          currentEdge = maxFlowEdges[currentEdge].nextEdge) {
+        MaxFlowEdge edge = maxFlowEdges[currentEdge];
         if (edge.destVertex != S_NODE && edge.capacity == 0) {
           result.put(regionGroupId, dNodeReflect.get(edge.destVertex));
         }
