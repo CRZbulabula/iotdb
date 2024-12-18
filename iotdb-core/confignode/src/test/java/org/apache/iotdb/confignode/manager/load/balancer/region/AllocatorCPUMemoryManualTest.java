@@ -26,6 +26,7 @@ import org.apache.iotdb.common.rpc.thrift.TDataNodeLocation;
 import org.apache.iotdb.common.rpc.thrift.TRegionReplicaSet;
 import org.apache.iotdb.confignode.conf.ConfigNodeConfig;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
+import org.apache.iotdb.confignode.manager.load.balancer.region.pure.AlgorithmicCopySetAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.pure.AlgorithmicTieredReplicationAllocator;
 
 import org.apache.lucene.util.RamUsageEstimator;
@@ -48,14 +49,16 @@ public class AllocatorCPUMemoryManualTest {
   private static final ThreadMXBean THREAD_MX_BEAN = ManagementFactory.getThreadMXBean();
 
   private static final ConfigNodeConfig CONF = ConfigNodeDescriptor.getInstance().getConf();
-  private static final int TEST_LOOP = 1;
-  private static final int MIN_DATA_NODE_NUM = 1;
+  private static final int TEST_LOOP = 100;
+  private static final int MIN_DATA_NODE_NUM = 100;
   private static final int MAX_DATA_NODE_NUM = 1000;
+  private static final int OFFSET = 25;
+  private static final int STEP = 100;
   private static final int MIN_DATA_REGION_PER_DATA_NODE = 10;
   private static final int MAX_DATA_REGION_PER_DATA_NODE = 10;
   private static final int DATA_REPLICATION_FACTOR = 2;
   private static final IRegionGroupAllocator ALLOCATOR =
-      new AlgorithmicTieredReplicationAllocator();
+      new HydraRegionGroupAllocator();
 
   private static final Map<Integer, TDataNodeConfiguration> AVAILABLE_DATA_NODE_MAP =
       new TreeMap<>();
@@ -87,25 +90,25 @@ public class AllocatorCPUMemoryManualTest {
       }
     }
     // Real test
-    for (int dataNodeNum = MIN_DATA_NODE_NUM; dataNodeNum <= MAX_DATA_NODE_NUM; dataNodeNum++) {
+    for (int dataNodeNum = MIN_DATA_NODE_NUM; dataNodeNum <= MAX_DATA_NODE_NUM; dataNodeNum += STEP) {
       for (int dataRegionPerDataNode = MIN_DATA_REGION_PER_DATA_NODE;
           dataRegionPerDataNode <= MAX_DATA_REGION_PER_DATA_NODE;
           dataRegionPerDataNode++) {
         CONF.setDataRegionPerDataNode(dataRegionPerDataNode);
-        testResult.add(singleTest(dataNodeNum, dataRegionPerDataNode, true));
+        testResult.add(singleTest(dataNodeNum - OFFSET, dataRegionPerDataNode, true));
       }
     }
 
     FileWriter cpuW =
         new FileWriter(
-            "/Users/yongzaodan/Desktop/simulation/resource/placement/ROUND_ROBIN-cpu.log");
+            "/Users/yongzaodan/Desktop/evaluation/resource/placement/HYDRA-cpu.log");
     FileWriter memW =
         new FileWriter(
-            "/Users/yongzaodan/Desktop/simulation/resource/placement/ROUND_ROBIN-mem.log");
+            "/Users/yongzaodan/Desktop/evaluation/resource/placement/HYDRA-mem.log");
     for (DataEntry entry : testResult) {
-      cpuW.write(entry.avgCPUTimeInMS + "\n");
+      cpuW.write(entry.N + " " + entry.avgCPUTimeInMS + "\n");
       cpuW.flush();
-      memW.write(entry.maxMemoryInMB + "\n");
+      memW.write(entry.N + " " + entry.maxMemoryInMB + "\n");
       memW.flush();
     }
     cpuW.close();
