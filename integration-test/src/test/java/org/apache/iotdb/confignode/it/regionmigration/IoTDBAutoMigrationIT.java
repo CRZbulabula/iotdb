@@ -72,11 +72,11 @@ public class IoTDBAutoMigrationIT {
     EnvFactory.getEnv()
         .getConfig()
         .getCommonConfig()
-        .setSeriesPartitionExecutorClass(
-            "org.apache.iotdb.commons.partition.executor.hash.RIPEMD160Executor")
-        .setRegionGroupAllocatePolicy("AEROSPIKE")
+        //        .setSeriesPartitionExecutorClass(
+        //            "org.apache.iotdb.commons.partition.executor.hash.RIPEMD160Executor")
+        //        .setRegionGroupAllocatePolicy("AEROSPIKE")
         .setEnableAutoLeaderBalanceForIoTConsensus(true)
-        .setLeaderDistributionPolicy("AEROSPIKE")
+        //        .setLeaderDistributionPolicy("AEROSPIKE")
         .setTimestampPrecision("ms")
         .setTimePartitionInterval(86400000)
         .setSeriesSlotNum(SERIES_NUM / 4)

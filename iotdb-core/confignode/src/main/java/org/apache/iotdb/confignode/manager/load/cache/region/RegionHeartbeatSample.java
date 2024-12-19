@@ -27,6 +27,7 @@ import org.apache.iotdb.confignode.manager.load.cache.AbstractHeartbeatSample;
 public class RegionHeartbeatSample extends AbstractHeartbeatSample {
 
   private final RegionStatus status;
+  private long diskUsage = 0;
 
   public RegionHeartbeatSample(long sampleNanoTimestamp, RegionStatus status) {
     super(sampleNanoTimestamp);
@@ -37,9 +38,18 @@ public class RegionHeartbeatSample extends AbstractHeartbeatSample {
   public RegionHeartbeatSample(RegionStatus status) {
     super(System.nanoTime());
     this.status = status;
+    this.diskUsage = 0;
   }
 
   public RegionStatus getStatus() {
     return status;
+  }
+
+  public void setDiskUsage(long diskUsage) {
+    this.diskUsage = diskUsage;
+  }
+
+  public long getDiskUsage() {
+    return diskUsage;
   }
 }

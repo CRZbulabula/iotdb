@@ -29,12 +29,7 @@ import org.apache.iotdb.confignode.conf.ConfigNodeConfig;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicAerospikeLeaderBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicCFDBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicESDBBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicGREEDYBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicLogStoreBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicRANDOMBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.ILeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.cache.node.NodeStatistics;
 
@@ -101,7 +96,9 @@ public class SelectorCPUMemoryManualTest {
       }
     }
     // Real test
-    for (int dataNodeNum = MIN_DATA_NODE_NUM; dataNodeNum <= MAX_DATA_NODE_NUM; dataNodeNum += STEP) {
+    for (int dataNodeNum = MIN_DATA_NODE_NUM;
+        dataNodeNum <= MAX_DATA_NODE_NUM;
+        dataNodeNum += STEP) {
       for (int dataRegionPerDataNode = MIN_DATA_REGION_PER_DATA_NODE;
           dataRegionPerDataNode <= MAX_DATA_REGION_PER_DATA_NODE;
           dataRegionPerDataNode++) {

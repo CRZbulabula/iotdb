@@ -39,6 +39,9 @@ import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllo
 import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.RoundRobinRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.TieredReplicationAllocator;
+import org.apache.iotdb.confignode.manager.load.balancer.region.migrator.IRegionGroupMigrator;
+import org.apache.iotdb.confignode.manager.load.balancer.region.migrator.PartiteGraphPlacementRegionGroupMigrator;
+import org.apache.iotdb.confignode.manager.load.cache.region.RegionGroupStatistics;
 import org.apache.iotdb.confignode.manager.node.NodeManager;
 import org.apache.iotdb.confignode.manager.partition.PartitionManager;
 import org.apache.iotdb.confignode.manager.schema.ClusterSchemaManager;
@@ -55,9 +58,11 @@ public class RegionBalancer {
 
   private final IManager configManager;
   private final IRegionGroupAllocator regionGroupAllocator;
+  private final IRegionGroupMigrator regionGroupMigrator;
 
   public RegionBalancer(IManager configManager) {
     this.configManager = configManager;
+    this.regionGroupMigrator = new PartiteGraphPlacementRegionGroupMigrator();
 
     switch (ConfigNodeDescriptor.getInstance().getConf().getRegionGroupAllocatePolicy()) {
       case ROUND_ROBIN:
@@ -159,6 +164,24 @@ public class RegionBalancer {
     }
 
     return createRegionGroupsPlan;
+  }
+
+  /**
+   * Generate an optimal RegionReplicas' distribution for cluster RegionGroups.
+   *
+   * @param availableDataNodeMap DataNodes that can be used for allocation
+   * @param regionGroupStatisticsMap Statistics of RegionGroups
+   * @param allocatedRegionGroups Allocated RegionGroups
+   * @param replicationFactor Replication factor of TRegionReplicaSet
+   * @return The optimal TRegionReplicaSet derived by the specified algorithm
+   */
+  public Map<TConsensusGroupId, TRegionReplicaSet> generateOptimalRegionReplicasDistribution(
+      Map<Integer, TDataNodeConfiguration> availableDataNodeMap,
+      Map<TConsensusGroupId, RegionGroupStatistics> regionGroupStatisticsMap,
+      List<TRegionReplicaSet> allocatedRegionGroups,
+      int replicationFactor) {
+    return regionGroupMigrator.generateOptimalRegionReplicasDistribution(
+        availableDataNodeMap, regionGroupStatisticsMap, allocatedRegionGroups, replicationFactor);
   }
 
   private NodeManager getNodeManager() {

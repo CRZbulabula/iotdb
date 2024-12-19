@@ -41,17 +41,21 @@ public class RegionCache extends AbstractLoadCache {
     }
 
     RegionStatus status;
+    long diskUsage;
     long currentNanoTime = System.nanoTime();
     if (lastSample == null) {
       status = RegionStatus.Unknown;
+      diskUsage = 0;
     } else if (currentNanoTime - lastSample.getSampleLogicalTimestamp()
         > HEARTBEAT_TIMEOUT_TIME_IN_NS) {
       // TODO: Optimize Unknown judge logic
       status = RegionStatus.Unknown;
+      diskUsage = lastSample.getDiskUsage();
     } else {
       status = lastSample.getStatus();
+      diskUsage = lastSample.getDiskUsage();
     }
-    this.currentStatistics.set(new RegionStatistics(currentNanoTime, status));
+    this.currentStatistics.set(new RegionStatistics(currentNanoTime, status, diskUsage));
   }
 
   public RegionStatistics getCurrentStatistics() {

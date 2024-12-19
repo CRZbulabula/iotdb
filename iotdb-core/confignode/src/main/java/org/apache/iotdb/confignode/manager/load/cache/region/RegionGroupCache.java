@@ -19,7 +19,6 @@
 
 package org.apache.iotdb.confignode.manager.load.cache.region;
 
-import org.apache.iotdb.commons.cluster.RegionStatus;
 import org.apache.iotdb.commons.utils.TestOnly;
 import org.apache.iotdb.confignode.manager.partition.RegionGroupStatus;
 
@@ -101,45 +100,55 @@ public class RegionGroupCache {
                 TreeMap::new,
                 (map, entry) -> map.put(entry.getKey(), entry.getValue().getCurrentStatistics()),
                 TreeMap::putAll);
-    currentStatistics.set(
+    RegionGroupStatistics regionGroupStatistics =
         new RegionGroupStatistics(
-            caculateRegionGroupStatus(regionStatisticsMap), regionStatisticsMap));
+            caculateRegionGroupStatus(regionStatisticsMap), regionStatisticsMap);
+    long diskUsage = 0;
+    for (RegionStatistics regionStatistics : regionStatisticsMap.values()) {
+      diskUsage += regionStatistics.getDiskUsage();
+    }
+    regionGroupStatistics.setDiskUsage(diskUsage);
+    currentStatistics.set(regionGroupStatistics);
   }
 
   private RegionGroupStatus caculateRegionGroupStatus(
       Map<Integer, RegionStatistics> regionStatisticsMap) {
-    int unknownCount = 0;
-    int readonlyCount = 0;
-    for (RegionStatistics regionStatistics : regionStatisticsMap.values()) {
-      if (RegionStatus.Removing.equals(regionStatistics.getRegionStatus())) {
-        // The RegionGroup is considered as Disabled when
-        // at least one Region is in the ReadOnly or Removing status
-        return RegionGroupStatus.Disabled;
-      }
-      unknownCount += RegionStatus.Unknown.equals(regionStatistics.getRegionStatus()) ? 1 : 0;
-      readonlyCount += RegionStatus.ReadOnly.equals(regionStatistics.getRegionStatus()) ? 1 : 0;
-    }
-
-    if (unknownCount + readonlyCount == 0) {
-      // The RegionGroup is considered as Running only if
-      // all Regions are in the Running status
-      return RegionGroupStatus.Running;
-    } else if (readonlyCount == 0) {
-      return unknownCount <= (regionCacheMap.size() / 2)
-          // The RegionGroup is considered as Available when the number of Unknown Regions is less
-          // than half
-          ? RegionGroupStatus.Available
-          // Disabled otherwise
-          : RegionGroupStatus.Disabled;
-    } else {
-      return unknownCount + readonlyCount <= ((regionCacheMap.size() - 1) / 2)
-          // The RegionGroup is considered as Discouraged when the number of Unknown or ReadOnly
-          // Regions is less
-          // than half, and there are at least 1 ReadOnly Region
-          ? RegionGroupStatus.Discouraged
-          // Disabled otherwise
-          : RegionGroupStatus.Disabled;
-    }
+    return RegionGroupStatus.Running;
+    //    int unknownCount = 0;
+    //    int readonlyCount = 0;
+    //    for (RegionStatistics regionStatistics : regionStatisticsMap.values()) {
+    //      if (RegionStatus.Removing.equals(regionStatistics.getRegionStatus())) {
+    //        // The RegionGroup is considered as Disabled when
+    //        // at least one Region is in the ReadOnly or Removing status
+    //        return RegionGroupStatus.Disabled;
+    //      }
+    //      unknownCount += RegionStatus.Unknown.equals(regionStatistics.getRegionStatus()) ? 1 : 0;
+    //      readonlyCount += RegionStatus.ReadOnly.equals(regionStatistics.getRegionStatus()) ? 1 :
+    // 0;
+    //    }
+    //
+    //    if (unknownCount + readonlyCount == 0) {
+    //      // The RegionGroup is considered as Running only if
+    //      // all Regions are in the Running status
+    //      return RegionGroupStatus.Running;
+    //    } else if (readonlyCount == 0) {
+    //      return unknownCount <= (regionCacheMap.size() / 2)
+    //          // The RegionGroup is considered as Available when the number of Unknown Regions is
+    // less
+    //          // than half
+    //          ? RegionGroupStatus.Available
+    //          // Disabled otherwise
+    //          : RegionGroupStatus.Disabled;
+    //    } else {
+    //      return unknownCount + readonlyCount <= ((regionCacheMap.size() - 1) / 2)
+    //          // The RegionGroup is considered as Discouraged when the number of Unknown or
+    // ReadOnly
+    //          // Regions is less
+    //          // than half, and there are at least 1 ReadOnly Region
+    //          ? RegionGroupStatus.Discouraged
+    //          // Disabled otherwise
+    //          : RegionGroupStatus.Disabled;
+    //    }
   }
 
   public RegionGroupStatistics getCurrentStatistics() {

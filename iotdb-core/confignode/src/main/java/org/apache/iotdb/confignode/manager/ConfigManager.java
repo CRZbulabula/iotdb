@@ -102,6 +102,7 @@ import org.apache.iotdb.confignode.manager.consensus.ConsensusManager;
 import org.apache.iotdb.confignode.manager.cq.CQManager;
 import org.apache.iotdb.confignode.manager.load.LoadManager;
 import org.apache.iotdb.confignode.manager.load.cache.node.NodeHeartbeatSample;
+import org.apache.iotdb.confignode.manager.load.cache.region.RegionGroupStatistics;
 import org.apache.iotdb.confignode.manager.node.ClusterNodeStartUtils;
 import org.apache.iotdb.confignode.manager.node.NodeManager;
 import org.apache.iotdb.confignode.manager.node.NodeMetrics;
@@ -252,6 +253,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
@@ -260,7 +262,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.apache.iotdb.commons.conf.IoTDBConstant.ONE_LEVEL_PATH_WILDCARD;
-import static org.apache.iotdb.confignode.manager.load.balancer.region.AerospikeRegionGroupAllocator.generateReplicationList;
 
 /** Entry of all management, AssignPartitionManager, AssignRegionManager. */
 public class ConfigManager implements IManager {
@@ -2602,13 +2603,35 @@ public class ConfigManager implements IManager {
 
   @Override
   public TSStatus migrateRegions() {
-    List<Integer> dataNodeIds =
-        getNodeManager().getRegisteredDataNodes().stream()
-            .map(TDataNodeConfiguration::getLocation)
-            .map(TDataNodeLocation::getDataNodeId)
-            .collect(Collectors.toList());
+    List<TDataNodeConfiguration> availableDataNodes =
+        getNodeManager().filterDataNodeThroughStatus(NodeStatus.Running, NodeStatus.Unknown);
+    Map<Integer, TDataNodeConfiguration> availableDataNodeMap =
+        new HashMap<>(availableDataNodes.size());
+    availableDataNodes.forEach(
+        dataNodeConfiguration -> {
+          int dataNodeId = dataNodeConfiguration.getLocation().getDataNodeId();
+          availableDataNodeMap.put(dataNodeId, dataNodeConfiguration);
+        });
+    Map<TConsensusGroupId, RegionGroupStatistics> regionGroupStatisticsMap =
+        getLoadManager().getLoadCache().getCurrentRegionGroupStatisticsMap();
     List<TRegionReplicaSet> dataRegions =
         getPartitionManager().getAllReplicaSets(TConsensusGroupType.DataRegion);
+
+    Map<TConsensusGroupId, TRegionReplicaSet> targetRegionGroupMap =
+        getLoadManager()
+            .generateOptimalRegionReplicasDistribution(
+                availableDataNodeMap,
+                regionGroupStatisticsMap,
+                dataRegions,
+                dataRegions.get(0).getDataNodeLocationsSize());
+    Map<Integer, Integer> regionCounter = new TreeMap<>();
+    for (TRegionReplicaSet regionReplicaSet : targetRegionGroupMap.values()) {
+      regionReplicaSet
+          .getDataNodeLocations()
+          .forEach(location -> regionCounter.merge(location.getDataNodeId(), 1, Integer::sum));
+    }
+    LOGGER.info("[AutoMigration] Target region counter: {}", regionCounter);
+
     ForkJoinPool customThreadPool = new ForkJoinPool(dataRegions.size());
     CompletableFuture.runAsync(
         () ->
@@ -2623,12 +2646,22 @@ public class ConfigManager implements IManager {
                                 .collect(Collectors.toList());
                         int replicationFactor = originalDataNodeIds.size();
                         List<Integer> targetDataNodeIds =
-                            generateReplicationList(regionId, dataNodeIds)
-                                .subList(0, replicationFactor);
+                            targetRegionGroupMap
+                                .get(regionReplicaSet.getRegionId())
+                                .getDataNodeLocations()
+                                .stream()
+                                .map(TDataNodeLocation::getDataNodeId)
+                                .collect(Collectors.toList());
+                        LOGGER.info(
+                            "[AutoMigration] Start migrating region {} from {} to {}",
+                            regionId,
+                            originalDataNodeIds,
+                            targetDataNodeIds);
                         boolean[] isDataNodeEmployed = new boolean[replicationFactor];
                         Arrays.fill(isDataNodeEmployed, false);
                         for (int originalId : originalDataNodeIds) {
                           if (targetDataNodeIds.contains(originalId)) {
+                            // Prune: prefill the overlap replicas
                             isDataNodeEmployed[targetDataNodeIds.indexOf(originalId)] = true;
                           }
                         }
