@@ -27,29 +27,78 @@ DATANODE_16="iotdb19"
 
 given_timestamp=$(date -d "2023-11-30T00:00:00.000+08:00" +%s%3N)
 
-# LEADER_ALGS=("CFD" "RANDOM" "GREEDY" "CFD" "CFD" "CFD")
-# REPLICA_ALGS=("PGR" "PGR" "PGR" "COPY_SET" "TIERED_REPLICATION" "GREEDY")
+EXPERIMENT_COMBOS=(
+    "CFD ROUND_ROBIN 0 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+    "CFD COPY_SET 0 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+    "CFD TIERED_REPLICATION 0 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+    "CFD GEMINI 0 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+    "CFD HYDRA 0 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+    "CFD PGP 0 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+    "RANDOM PGP 0 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+    "GREEDY PGP 0 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+    "LOGSTORE PGP 60 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+    "ESDB PGP 60 960 org.apache.iotdb.consensus.iot.FastIoTConsensus"
+)
 
-# LEADER_ALGS=("GREEDY" "GREEDY" "GREEDY" "GREEDY" "GREEDY" "GREEDY" "CFD" "CFD" "CFD")
-# REPLICA_ALGS=("PGR" "PGR" "PGR" "PGR" "PGR" "PGR" "PGR" "PGR" "PGR")
-LEADER_ALGS=("RANDOM" "RANDOM" "RANDOM")
-REPLICA_ALGS=("PGR" "PGR" "PGR")
+LEADER_ALGS=()
+REPLICA_ALGS=()
+DYNAMIC_ALGS=()
+SLOT_ALGS=()
+CONSENSUS_ALGS=()
 
-YAML_PATH="/home/ubuntu/evaluation/iotd/config/expansion.yaml"
+for ((j = 0; j < 100; j++)); do
+    for ((i = 0; i < ${#EXPERIMENT_COMBOS[@]}; i++)); do
+        combo=${EXPERIMENT_COMBOS[$i]}
+        leader_alg=$(echo $combo | awk '{print $1}')
+        replica_alg=$(echo $combo | awk '{print $2}')
+        dynamic_alg=$(echo $combo | awk '{print $3}')
+        slot_alg=$(echo $combo | awk '{print $4}')
+        consensus_alg=$(echo $combo | awk '{print $5}')
+        LEADER_ALGS+=("$leader_alg")
+        REPLICA_ALGS+=("$replica_alg")
+        DYNAMIC_ALGS+=("$dynamic_alg")
+        SLOT_ALGS+=("$slot_alg")
+        CONSENSUS_ALGS+=("$consensus_alg")
+    done
+done
+
+echo "LEADER_ALGS: ${LEADER_ALGS[@]}"
+echo "REPLICA_ALGS: ${REPLICA_ALGS[@]}"
+echo "DYNAMIC_ALGS: ${DYNAMIC_ALGS[@]}"
+echo "SLOT_ALGS: ${SLOT_ALGS[@]}"
+echo "CONSENSUS_ALGS: ${CONSENSUS_ALGS[@]}"
+
+FILE_NAME="expansion"
+YAML_PATH="/home/ubuntu/evaluation/iotd/config/${FILE_NAME}.yaml"
+echo "YAML_PATH: $YAML_PATH"
 
 for ((j = 0; j < ${#REPLICA_ALGS[@]}; j++)); do
     leader_alg=${LEADER_ALGS[$j]}
     replica_alg=${REPLICA_ALGS[$j]}
-    echo "$(date): Begin testing leader_alg=$leader_alg, replica_alg=$replica_alg"
+    dynamic_alg=${DYNAMIC_ALGS[$j]}
+    slot_alg=${SLOT_ALGS[$j]}
+    consensus_alg=${CONSENSUS_ALGS[$j]}
+    echo "$(date): Begin testing leader_alg=$leader_alg, replica_alg=$replica_alg, dynamic_alg=$dynamic_alg, slot_alg=$slot_alg, consensus_alg=$consensus_alg"
 
+    bash /home/ubuntu/evaluation/expansion/stop_ttl.sh
     bash /home/ubuntu/evaluation/expansion/stop_all_bm.sh
+    bash /home/ubuntu/evaluation/disaster/stop_all_power.sh
+    bash /home/ubuntu/evaluation/disaster/start_all_power.sh
     echo "clean side effect"
 
-    # Modify IoTDB deployment configurations
+    # Modify IoTDB configurations
     sed -i "/leader_distribution_policy:/s/:.*/: $leader_alg/" $YAML_PATH
     sed -i "/region_group_allocate_policy:/s/:.*/: $replica_alg/" $YAML_PATH
+    sed -i "/data_region_consensus_protocol_class:/s/:.*/: $consensus_alg/" $YAML_PATH
+    sed -i "/series_slot_num:/s/:.*/: $slot_alg/" $YAML_PATH
     grep "leader_distribution_policy" $YAML_PATH
-    grep "region_group_allocate_policy" $YAML_PATH 
+    grep "region_group_allocate_policy" $YAML_PATH
+    grep "data_region_consensus_protocol_class" $YAML_PATH
+    grep "series_slot_num" $YAML_PATH
+    sed -i "/dynamic_leader_balancing_cycle:/s/:.*/: $dynamic_alg/" $YAML_PATH
+    grep "dynamic_leader_balancing_cycle" $YAML_PATH
+    sed -i "/time_partition_interval:/s/:.*/: 86400000/" $YAML_PATH
+    grep "time_partition_interval" $YAML_PATH
     
     # Deploy IoTDB
     sudo /home/ubuntu/evaluation/iotd/sbin/iotd cluster stop expansion
@@ -85,16 +134,20 @@ for ((j = 0; j < ${#REPLICA_ALGS[@]}; j++)); do
     sleep 10
     echo "$(date): start 1C8D"
 
-    # Start benchmark-1
+    # Start BM-1
     ssh $USER@$BM1_HOST "nohup bash /home/ubuntu/start_bm.sh 1 > /dev/null 2>&1 &"
     echo "$(date): start remote bm1"
     ssh $USER@$BM2_HOST "nohup bash /home/ubuntu/start_bm.sh 1 > /dev/null 2>&1 &"
     echo "$(date): start remote bm2"
 
-    # Ensure the first time partitions are allocated
-    sleep 700
+    # Set ttl
+    nohup bash /home/ubuntu/evaluation/expansion/start_ttl.sh > /dev/null 2>&1 &
+    echo "$(date): start ttl"
+
+    # Simulate before expansion
+    sleep 900
     
-    # expansion 8D
+    # Expand 8D
     ssh $USER@$DATANODE_9 "nohup bash /home/ubuntu/start_datanode.sh > /dev/null 2>&1 &"
     echo "$(date): start remote datanode9"
     ssh $USER@$DATANODE_10 "nohup bash /home/ubuntu/start_datanode.sh > /dev/null 2>&1 &"
@@ -114,13 +167,10 @@ for ((j = 0; j < ${#REPLICA_ALGS[@]}; j++)); do
     sleep 10
     echo "$(date): start 8D"
 
-    # Ensure writing stable
-    sleep 100
-
-    # Stop benchmark-1
+    # Close BM1
     bash /home/ubuntu/evaluation/expansion/stop_all_bm.sh
 
-    # Start benchmark-2
+    # Start BM-2 to double the write load
     ssh $USER@$BM1_HOST "nohup bash /home/ubuntu/start_bm.sh 2 > /dev/null 2>&1 &"
     echo "$(date): start remote bm1"
     ssh $USER@$BM2_HOST "nohup bash /home/ubuntu/start_bm.sh 2 > /dev/null 2>&1 &"
@@ -129,22 +179,29 @@ for ((j = 0; j < ${#REPLICA_ALGS[@]}; j++)); do
     echo "$(date): start remote bm3"
     ssh $USER@$BM4_HOST "nohup bash /home/ubuntu/start_bm.sh 2 > /dev/null 2>&1 &"
     echo "$(date): start remote bm4"
-
-    # Ensure stable
-    sleep 300
-
-    # set ttl
-    current_timestamp=$(date +%s%3N)
-    ttl=$(($current_timestamp - $given_timestamp))
-    bash /home/ubuntu/data/iotdb-deploy/confignode/iotdb/sbin/start-cli.sh -h 172.21.32.14 -e "set ttl to root.toyotads.** $ttl"
-    echo "$(date): set ttl to $ttl"
     
-    # Ensure TTL elimination
-    sleep 900
+    # Ensure new Regions are created
+    sleep 100
 
-    # Stop benchmark
+    # Trigger migration when necessary
+    # if [ $replica_alg == "AEROSPIKE" ]; then
+    #     nohup bash /home/ubuntu/evaluation/expansion/trigger_migration.sh > /dev/null 2>&1 &
+    #     echo "$(date): start migration"
+    # fi
+    # nohup bash /home/ubuntu/evaluation/expansion/trigger_migration.sh > /dev/null 2>&1 &
+    # echo "$(date): start migration"
+
+    # Simulate after expansion
+    sleep 1400
+    # sleep 1200
+
+    # Close BM
     bash /home/ubuntu/evaluation/expansion/stop_all_bm.sh
     echo "stop all bm"
+
+    # Close ttl
+    bash /home/ubuntu/evaluation/expansion/stop_ttl.sh
+    echo "stop ttl"
 
     sleep 2
     echo "$(date): End testing leader_alg=$leader_alg, replica_alg=$replica_alg"

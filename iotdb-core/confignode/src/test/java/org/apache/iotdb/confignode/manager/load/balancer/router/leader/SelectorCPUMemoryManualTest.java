@@ -29,7 +29,11 @@ import org.apache.iotdb.confignode.conf.ConfigNodeConfig;
 import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
+import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicCFDBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicESDBBalancer;
+import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicGREEDYBalancer;
+import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicLogStoreBalancer;
+import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicRANDOMBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.ILeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.cache.node.NodeStatistics;
 
@@ -53,13 +57,13 @@ public class SelectorCPUMemoryManualTest {
   private static final ThreadMXBean THREAD_MX_BEAN = ManagementFactory.getThreadMXBean();
 
   private static final ConfigNodeConfig CONF = ConfigNodeDescriptor.getInstance().getConf();
-  private static final int TEST_LOOP = 10;
-  private static final int MIN_DATA_NODE_NUM = 100;
-  private static final int MAX_DATA_NODE_NUM = 1000;
-  private static final int OFFSET = 20;
+  private static final int TEST_LOOP = 100;
+  private static final int MIN_DATA_NODE_NUM = 16;
+  private static final int MAX_DATA_NODE_NUM = 16;
+  private static final int OFFSET = 0;
   private static final int STEP = 100;
-  private static final int MIN_DATA_REGION_PER_DATA_NODE = 10;
-  private static final int MAX_DATA_REGION_PER_DATA_NODE = 10;
+  private static final int MIN_DATA_REGION_PER_DATA_NODE = 8;
+  private static final int MAX_DATA_REGION_PER_DATA_NODE = 8;
   private static final int DATA_REPLICATION_FACTOR = 2;
   private static final String DATABASE = "root.db";
   private static final IRegionGroupAllocator ALLOCATOR =
@@ -87,7 +91,7 @@ public class SelectorCPUMemoryManualTest {
     List<DataEntry> testResult = new ArrayList<>();
     THREAD_MX_BEAN.setThreadCpuTimeEnabled(true);
     // Warm up
-    for (int dataNodeNum = 1; dataNodeNum <= 100; dataNodeNum++) {
+    for (int dataNodeNum = 1; dataNodeNum <= 200; dataNodeNum++) {
       for (int dataRegionPerDataNode = MIN_DATA_REGION_PER_DATA_NODE;
           dataRegionPerDataNode <= MAX_DATA_REGION_PER_DATA_NODE;
           dataRegionPerDataNode++) {
@@ -107,18 +111,18 @@ public class SelectorCPUMemoryManualTest {
       }
     }
 
-    FileWriter cpuW =
-        new FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/selection/ESDB-cpu.log");
-    FileWriter memW =
-        new FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/selection/ESDB-mem.log");
-    for (DataEntry entry : testResult) {
-      cpuW.write(entry.N + " " + entry.avgCPUTimeInMS + "\n");
-      cpuW.flush();
-      memW.write(entry.N + " " + entry.maxMemoryInMB + "\n");
-      memW.flush();
-    }
-    cpuW.close();
-    memW.close();
+//    FileWriter cpuW =
+//        new FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/selection/ESDB-cpu.log");
+//    FileWriter memW =
+//        new FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/selection/ESDB-mem.log");
+//    for (DataEntry entry : testResult) {
+//      cpuW.write(entry.N + " " + entry.avgCPUTimeInMS + "\n");
+//      cpuW.flush();
+//      memW.write(entry.N + " " + entry.maxMemoryInMB + "\n");
+//      memW.flush();
+//    }
+//    cpuW.close();
+//    memW.close();
   }
 
   private DataEntry singleTest(int N, int W) {
@@ -158,7 +162,7 @@ public class SelectorCPUMemoryManualTest {
     long startTime = THREAD_MX_BEAN.getThreadCpuTime(threadID), totalTime = 0;
     for (int loop = 1; loop <= TEST_LOOP; loop++) {
       startTime = THREAD_MX_BEAN.getThreadCpuTime(threadID);
-      ILeaderBalancer BALANCER = new AlgorithmicESDBBalancer();
+      ILeaderBalancer BALANCER = new AlgorithmicCFDBalancer();
       BALANCER.generateOptimalLeaderDistribution(AVAILABLE_DATA_NODE_MAP, allocateResult);
       totalTime += THREAD_MX_BEAN.getThreadCpuTime(threadID) - startTime;
       currentMemoryInMB = (double) RamUsageEstimator.sizeOf(BALANCER) / 1024.0 / 1024.0;

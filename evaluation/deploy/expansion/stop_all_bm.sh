@@ -8,7 +8,6 @@ BM3_HOST="iotdb20"
 BM4_HOST="iotdb21"
 
 
-# Stop benchmark
 ssh $USER@$BM1_HOST "bash /home/ubuntu/stop_bm.sh"
 echo "$(date): stop remote bm1"
 ssh $USER@$BM2_HOST "bash /home/ubuntu/stop_bm.sh"
