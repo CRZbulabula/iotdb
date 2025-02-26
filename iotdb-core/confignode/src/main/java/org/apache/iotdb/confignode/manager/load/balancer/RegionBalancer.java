@@ -37,6 +37,7 @@ import org.apache.iotdb.confignode.manager.load.balancer.region.GreedyCopySetReg
 import org.apache.iotdb.confignode.manager.load.balancer.region.HydraRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
+import org.apache.iotdb.confignode.manager.load.balancer.region.RingRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.RoundRobinRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.TieredReplicationAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.migrator.IRegionGroupMigrator;
@@ -82,6 +83,9 @@ public class RegionBalancer {
         break;
       case AEROSPIKE:
         this.regionGroupAllocator = new AerospikeRegionGroupAllocator();
+        break;
+      case RING:
+        this.regionGroupAllocator = new RingRegionGroupAllocator();
         break;
       case PGP:
         this.regionGroupAllocator = new PartiteGraphPlacementRegionGroupAllocator();
@@ -208,6 +212,7 @@ public class RegionBalancer {
     GEMINI,
     HYDRA,
     AEROSPIKE,
-    PGP
+    PGP,
+    RING
   }
 }

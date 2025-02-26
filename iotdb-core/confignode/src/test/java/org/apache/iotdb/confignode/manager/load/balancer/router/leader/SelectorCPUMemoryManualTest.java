@@ -30,10 +30,6 @@ import org.apache.iotdb.confignode.conf.ConfigNodeDescriptor;
 import org.apache.iotdb.confignode.manager.load.balancer.region.IRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.region.PartiteGraphPlacementRegionGroupAllocator;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicCFDBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicESDBBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicGREEDYBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicLogStoreBalancer;
-import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.AlgorithmicRANDOMBalancer;
 import org.apache.iotdb.confignode.manager.load.balancer.router.leader.pure.ILeaderBalancer;
 import org.apache.iotdb.confignode.manager.load.cache.node.NodeStatistics;
 
@@ -42,7 +38,6 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
@@ -111,18 +106,20 @@ public class SelectorCPUMemoryManualTest {
       }
     }
 
-//    FileWriter cpuW =
-//        new FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/selection/ESDB-cpu.log");
-//    FileWriter memW =
-//        new FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/selection/ESDB-mem.log");
-//    for (DataEntry entry : testResult) {
-//      cpuW.write(entry.N + " " + entry.avgCPUTimeInMS + "\n");
-//      cpuW.flush();
-//      memW.write(entry.N + " " + entry.maxMemoryInMB + "\n");
-//      memW.flush();
-//    }
-//    cpuW.close();
-//    memW.close();
+    //    FileWriter cpuW =
+    //        new
+    // FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/selection/ESDB-cpu.log");
+    //    FileWriter memW =
+    //        new
+    // FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/selection/ESDB-mem.log");
+    //    for (DataEntry entry : testResult) {
+    //      cpuW.write(entry.N + " " + entry.avgCPUTimeInMS + "\n");
+    //      cpuW.flush();
+    //      memW.write(entry.N + " " + entry.maxMemoryInMB + "\n");
+    //      memW.flush();
+    //    }
+    //    cpuW.close();
+    //    memW.close();
   }
 
   private DataEntry singleTest(int N, int W) {

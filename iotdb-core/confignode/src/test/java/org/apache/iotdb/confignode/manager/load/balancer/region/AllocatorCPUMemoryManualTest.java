@@ -32,7 +32,6 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
@@ -98,18 +97,20 @@ public class AllocatorCPUMemoryManualTest {
       }
     }
 
-//    FileWriter cpuW =
-//        new FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/placement/HYDRA-cpu.log");
-//    FileWriter memW =
-//        new FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/placement/HYDRA-mem.log");
-//    for (DataEntry entry : testResult) {
-//      cpuW.write(entry.N + " " + entry.avgCPUTimeInMS + "\n");
-//      cpuW.flush();
-//      memW.write(entry.N + " " + entry.maxMemoryInMB + "\n");
-//      memW.flush();
-//    }
-//    cpuW.close();
-//    memW.close();
+    //    FileWriter cpuW =
+    //        new
+    // FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/placement/HYDRA-cpu.log");
+    //    FileWriter memW =
+    //        new
+    // FileWriter("/Users/yongzaodan/Desktop/evaluation/resource/placement/HYDRA-mem.log");
+    //    for (DataEntry entry : testResult) {
+    //      cpuW.write(entry.N + " " + entry.avgCPUTimeInMS + "\n");
+    //      cpuW.flush();
+    //      memW.write(entry.N + " " + entry.maxMemoryInMB + "\n");
+    //      memW.flush();
+    //    }
+    //    cpuW.close();
+    //    memW.close();
   }
 
   private DataEntry singleTest(int N, int W, boolean needLog) {
